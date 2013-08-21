@@ -11,6 +11,10 @@ exist-optional.jar
 extensions/**/build/
 extensions/lib/
 extensions/modules/lib/
+installer/apps/
+installer/scripts/
+installer/eXist-db-setup-2.1-rev.jar
+installer/install.xml
 lib/extensions/
 local.*
 mime-types.xml
