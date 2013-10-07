@@ -8,7 +8,7 @@
 ## @UNIX_INSTALLER_1@ 
 
 # Added by Open Siddur:
-HSPELL_DATA_FILES_PATH="${EXIST_HOME}"/extensions/indexes/lucene/lib/hspell-data-files
+export HSPELL_DATA_FILES_PATH="${EXIST_HOME}"/extensions/indexes/lucene/lib/hspell-data-files
 
 #
 # In addition to the other parameter options for the jetty container 
