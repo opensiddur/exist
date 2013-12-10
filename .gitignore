@@ -12,6 +12,7 @@ examples.jar
 exist.jar
 exist-optional.jar
 extensions/**/build/
+extensions/contentextraction/lib/
 extensions/lib/
 extensions/modules/lib/
 installer/apps/
@@ -19,6 +20,8 @@ installer/scripts/
 installer/eXist-db-setup-2.1-rev.jar
 installer/install.xml
 lib/extensions/
+lib/user/svnkit*.jar
+lib/user/icu4j*.jar
 local.*
 mime-types.xml
 start.jar
