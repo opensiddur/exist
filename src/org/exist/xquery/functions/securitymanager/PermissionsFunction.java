@@ -54,7 +54,7 @@ import org.exist.xquery.value.Type;
  *
  * @author Adam Retter <adam@existsolutions.com>
  */
-public class PermissionsFunctions extends BasicFunction {
+public class PermissionsFunction extends BasicFunction {
     
     private final static QName qnGetPermissions = new QName("get-permissions", SecurityManagerModule.NAMESPACE_URI, SecurityManagerModule.PREFIX);
     private final static QName qnAddUserACE = new QName("add-user-ace", SecurityManagerModule.NAMESPACE_URI, SecurityManagerModule.PREFIX);
@@ -179,7 +179,7 @@ public class PermissionsFunctions extends BasicFunction {
         "Changes the owner of a resource or collection.",
         new SequenceType[] {
             new FunctionParameterSequenceType("path", Type.ANY_URI, Cardinality.EXACTLY_ONE, "The path to the resource or collection whoose owner you wish to set"),
-            new FunctionParameterSequenceType("user-name", Type.STRING, Cardinality.EXACTLY_ONE, "The name of the user owner to set on the resource or collection e.g. 'guest'"),
+            new FunctionParameterSequenceType("owner", Type.STRING, Cardinality.EXACTLY_ONE, "The name of the user owner to set on the resource or collection e.g. 'guest'. You may also provide a group owner, by using the syntax 'user:group' if you wish."),
         },
         new SequenceType(Type.EMPTY, Cardinality.ZERO)
     );
@@ -224,7 +224,7 @@ public class PermissionsFunctions extends BasicFunction {
 
     final static char OWNER_GROUP_SEPARATOR = ':';
 
-    public PermissionsFunctions(final XQueryContext context, final FunctionSignature signature) {
+    public PermissionsFunction(final XQueryContext context, final FunctionSignature signature) {
         super(context, signature);
     }
 
@@ -275,8 +275,8 @@ public class PermissionsFunctions extends BasicFunction {
                     final String mode = args[1].itemAt(0).getStringValue();
                     result = functionChMod(pathUri, mode);
                 } else if(isCalledAs(qnChOwn.getLocalName())) {
-                    final String username = args[1].itemAt(0).getStringValue();
-                    result = functionChOwn(pathUri, username);
+                    final String owner = args[1].itemAt(0).getStringValue();
+                    result = functionChOwn(pathUri, owner);
                 }  else if(isCalledAs(qnChGrp.getLocalName())) {
                     final String groupname = args[1].itemAt(0).getStringValue();
                     result = functionChGrp(pathUri, groupname);
@@ -394,16 +394,16 @@ public class PermissionsFunctions extends BasicFunction {
         return Sequence.EMPTY_SEQUENCE;
     }
 
-    private Sequence functionChOwn(final XmldbURI pathUri, final String username) throws PermissionDeniedException {
+    private Sequence functionChOwn(final XmldbURI pathUri, final String owner) throws PermissionDeniedException {
         PermissionFactory.updatePermissions(context.getBroker(), pathUri, new PermissionModifier(){
             @Override
             public void modify(final Permission permission) throws PermissionDeniedException {
 
-                if(username.indexOf(OWNER_GROUP_SEPARATOR) > -1) {
-                    permission.setOwner(username.substring(0, username.indexOf((OWNER_GROUP_SEPARATOR))));
-                    permission.setGroup(username.substring(username.indexOf(OWNER_GROUP_SEPARATOR) + 1));
+                if(owner.indexOf(OWNER_GROUP_SEPARATOR) > -1) {
+                    permission.setOwner(owner.substring(0, owner.indexOf((OWNER_GROUP_SEPARATOR))));
+                    permission.setGroup(owner.substring(owner.indexOf(OWNER_GROUP_SEPARATOR) + 1));
                 } else {
-                    permission.setOwner(username);
+                    permission.setOwner(owner);
                 }
             }
         });
@@ -436,9 +436,9 @@ public class PermissionsFunctions extends BasicFunction {
             mode |= Permission.EXECUTE;
         }
         
-        final Subject currentSubject = context.getBroker().getSubject();
+        final Subject effectiveSubject = context.getEffectiveUser();
         try {
-            final boolean hasAccess = getPermissions(pathUri).validate(currentSubject, mode);
+            final boolean hasAccess = getPermissions(pathUri).validate(effectiveSubject, mode);
             return BooleanValue.valueOf(hasAccess);
         } catch(final XPathException xpe) {
             LOG.error(xpe.getMessage(), xpe);

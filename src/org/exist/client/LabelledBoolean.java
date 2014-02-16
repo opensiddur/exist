@@ -1,6 +1,6 @@
 /*
  *  eXist Open Source Native XML Database
- *  Copyright (C) 2011-2012 The eXist Project
+ *  Copyright (C) 2013 The eXist Project
  *  http://exist-db.org
  *
  *  This program is free software; you can redistribute it and/or
@@ -19,18 +19,31 @@
  *
  *  $Id$
  */
-package org.exist.collections.triggers;
-
-import org.exist.storage.DBBroker;
+package org.exist.client;
 
 /**
+ * Simple Label and Boolean value
  *
- * @author aretter
+ * @author Adam Retter <adam@existsolutions.com>
  */
-public class DocumentTriggerProxies extends AbstractTriggerProxies<DocumentTrigger> {
+public class LabelledBoolean {  
+    private final String label;
+    private final boolean set;
 
-    @Override
-    public DocumentTriggersVisitor instantiateVisitor(DBBroker broker) {
-        return new DocumentTriggersVisitor(broker, this);
+    public LabelledBoolean(final String label, final boolean set) {
+        this.label = label;
+        this.set = set;
+    }
+
+    public String getLabel() {
+        return label;
+    }
+
+    public boolean isSet() {
+        return set;
+    }
+    
+    public LabelledBoolean copy(final boolean set) {
+        return new LabelledBoolean(getLabel(), set);
     }
 }
