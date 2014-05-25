@@ -52,6 +52,9 @@ wrapper.java.command=@java.vm@
 # EXIST_HOME
 set.EXIST_HOME=$INSTALL_PATH
 
+# Open Siddur hspell path
+set.HSPELL_DATA_FILES_PATH=$INSTALL_PATH/extensions/indexes/lucene/lib/hspell-data-files
+
 # Java Main class.  This class must implement the WrapperListener interface
 #  or guarantee that the WrapperManager class is initialized.  Helper
 #  classes are provided to do this for you.  See the Integration section

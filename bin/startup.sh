@@ -7,6 +7,9 @@
 
 ## @UNIX_INSTALLER_1@ 
 
+# Added by Open Siddur:
+export HSPELL_DATA_FILES_PATH="${EXIST_HOME}"/extensions/indexes/lucene/lib/hspell-data-files
+
 #
 # In addition to the other parameter options for the jetty container 
 # pass -j or --jmx to enable JMX agent. The port for it can be specified 
