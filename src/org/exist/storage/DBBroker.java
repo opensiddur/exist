@@ -56,6 +56,7 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Observable;
+
 import org.exist.collections.Collection.SubCollectionEntry;
 
 /**
@@ -65,7 +66,7 @@ import org.exist.collections.Collection.SubCollectionEntry;
  * 
  * @author Wolfgang Meier <wolfgang@exist-db.org>
  */
-public abstract class DBBroker extends Observable {
+public abstract class DBBroker extends Observable implements AutoCloseable {
 
 	// Matching types
 	public final static int MATCH_EXACT 		= 0;
@@ -159,7 +160,7 @@ public abstract class DBBroker extends Observable {
      * @param subject
      */
     //TODO: this should be done in connection with authenticate (SecurityManager)
-    public void setSubject(Subject subject) {
+    public void setSubject(final Subject subject) {
         this.subject = subject;
         /*
         synchronized (this){ System.out.println("DBBroker.setUser(" +
@@ -479,7 +480,19 @@ public abstract class DBBroker extends Observable {
     public abstract void reindexCollection(XmldbURI collectionName)
         throws PermissionDeniedException;
 
+    /**
+     * Repair indexes. Should delete all secondary indexes and rebuild them.
+     * This method will be called after the recovery run has completed.
+     *
+     * @throws PermissionDeniedException
+     */
     public abstract void repair() throws PermissionDeniedException;
+
+    /**
+     * Repair core indexes (dom, collections ...). This method is called immediately
+     * after recovery and before {@link #repair()}.
+     */
+    public abstract void repairPrimary();
 
     /**
      * Saves the specified collection to storage. Collections are usually cached
@@ -827,7 +840,17 @@ public abstract class DBBroker extends Observable {
 
     public abstract void readCollectionEntry(SubCollectionEntry entry);
 
-	public void release() {
-		pool.release(this);
-	}
+    @Override
+    public void close() throws Exception {
+        pool.release(this);
+    }
+    
+    @Deprecated //use close() method instead
+    public void release() {
+        pool.release(this);
+    }
+    
+    public Txn beginTx() {
+        return getDatabase().getTransactionManager().beginTransaction();
+    }
 }

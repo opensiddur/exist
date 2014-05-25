@@ -27,17 +27,6 @@
     <property file="../build.properties"/>
 
     <!-- Modules (in alphabetical order) -->
-   
-	<condition property="include.module.jfreechart_svg">
-	    <and>
-            <istrue value="${include.module.jfreechart}"/>
-            <istrue value="${include.module.xslfo}"/>
-        </and>
-    </condition>
-
-    <condition property="libs.available.calabash">
-        <available file="${modules.lib}/calabash.jar"/>
-    </condition>
 
 	<condition property="include.module.oracle_ext">
 	    <and>
@@ -130,23 +119,6 @@
     </target>
 
     <!-- 
-        Special targets for xmlcalabash module 
-    -->
-    <target name="prepare-xmlcalabash"
-            unless="libs.available.calabash" if="${include.module.xmlcalabash}" >
-        <echo message="------------------------------------------------------"/>
-        <echo message="Downloading libraries required by the xmlcalabash module"/>
-        <echo message="------------------------------------------------------"/>
-        <echo message="Calabash: ${libs.available.calabash}"/>
-        <fetch classpathref="classpath.core" dest="${modules.lib}" 
-               url="${include.module.xmlcalabash.url}">
-            <patternset>
-              <include name="**/calabash.jar"/>
-            </patternset>
-        </fetch>
-    </target>
-
-    <!-- 
         Special targets for simpleql module 
     -->
     <uptodate property="parser.uptodate" srcfile="${src}/org/exist/xquery/modules/simpleql/SimpleQLParser.g"
@@ -161,25 +133,6 @@
                 <path refid="classpath.core"/>
             </classpath>
         </antlr>
-    </target>
-
-    <!-- 
-        Special targets for jfreechart module unless="jfreechart-present"
-    -->
-    <target name="prepare-jfreechart" if="${include.module.jfreechart}">
-        <echo message="-------------------------------------------------------"/>
-        <echo message="Downloading libraries required by the jfreechart module"/>
-        <echo message="-------------------------------------------------------"/>
-
-        <fetch classpathref="classpath.core" dest="${modules.lib}" 
-                             url="${include.module.jfreechart.url}" classname="org.jfree.chart.JFreeChart"
-                             usecache="true">
-            <patternset>
-                <include name="**/lib/jfreechart-*.jar"/>
-                <include name="**/lib/jcommon-*.jar"/>
-                <exclude name="**/lib/jfreechart-*-*.jar"/>
-            </patternset>
-        </fetch>
     </target>
 
     <!-- 
@@ -243,7 +196,7 @@
         <ivy:retrieve xmlns:ivy="antlib:org.apache.ivy.ant" sync="false"/>
     </target>
 
-    <target name="prepare" depends="prepare-ivy,prepare-xslfo,prepare-simpleql,prepare-jfreechart,prepare-memcached,prepare-xmpp,prepare-xmlcalabash,prepare-expathrepo,prepare-cqlparser">
+    <target name="prepare" depends="prepare-ivy,prepare-xslfo,prepare-simpleql,prepare-memcached,prepare-xmpp,prepare-expathrepo,prepare-cqlparser">
         <mkdir dir="${classes}"/>
     </target>
 
@@ -262,7 +215,7 @@
                 <path refid="classpath.core"/>
             </classpath>
 
-        <exclude name="org/exist/xquery/modules/cache/**" unless="${include.module.cache}"/>
+            <exclude name="org/exist/xquery/modules/cache/**" unless="${include.module.cache}"/>
             <exclude name="org/exist/xquery/modules/compression/**" unless="${include.module.compression}"/>
             <exclude name="org/exist/xquery/modules/context/**" unless="${include.module.context}"/>
             <exclude name="org/exist/xquery/modules/counter/**" unless="${include.module.counter}"/>
@@ -272,8 +225,6 @@
             <exclude name="org/exist/xquery/modules/file/**" unless="${include.module.file}"/>
             <exclude name="org/exist/xquery/modules/httpclient/**" unless="${include.module.httpclient}"/>
             <exclude name="org/exist/xquery/modules/image/**" unless="${include.module.image}"/>
-            <exclude name="org/exist/xquery/modules/jfreechart/**" unless="${include.module.jfreechart}"/>
-            <exclude name="org/exist/xquery/modules/jfreechart/render/SVG**" unless="${include.module.jfreechart_svg}"/>
             <exclude name="org/exist/xquery/modules/jndi/**" unless="${include.module.jndi}"/>
             <exclude name="org/exist/xquery/modules/lib/**" unless="${include.module.lib}"/>
 			<exclude name="org/exist/xquery/modules/mail/**" unless="${include.module.mail}"/>
@@ -286,11 +237,11 @@
             <exclude name="org/exist/xquery/modules/xmldiff/**" unless="${include.module.xmldiff}"/>
             <exclude name="org/exist/xquery/modules/xmpp/**" unless="${include.module.xmpp}"/>
             <exclude name="org/exist/xquery/modules/xslfo/**" unless="${include.module.xslfo}"/>
-            <exclude name="org/exist/xquery/modules/xmlcalabash/**" unless="${include.module.xmlcalabash}"/>
             <exclude name="org/exist/xquery/modules/expathrepo/**" unless="${include.module.expathrepo}"/>
             <exclude name="org/exist/xquery/modules/process/**" unless="${include.module.process}"/>
             <exclude name="org/exist/xquery/modules/persistentlogin/**" unless="${include.module.persistentlogin}"/>
         </javac>
+        <copy file="${src}/org/exist/xquery/modules/file/repo.xsl" tofile="${classes}/org/exist/xquery/modules/file/repo.xsl"/>
     </target>
 
     <target name="jar" depends="compile, finish-persistentlogin">
@@ -311,8 +262,5 @@
     </target>
 
     <target name="clean-all">
-        <delete file="${modules.lib}/calabash.jar" failonerror="false"/>
     </target>
-
-
 </project>

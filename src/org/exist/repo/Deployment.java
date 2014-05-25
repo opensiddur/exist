@@ -61,6 +61,7 @@ import org.w3c.dom.Element;
 import org.xml.sax.Attributes;
 import org.xml.sax.InputSource;
 import org.xml.sax.SAXException;
+import org.xml.sax.helpers.AttributesImpl;
 
 import java.io.*;
 import java.util.Date;
@@ -189,9 +190,9 @@ public class Deployment {
                 }
                 if (pkgName != null) {
                     LOG.info("Package " + name + " depends on " + pkgName);
+                    boolean isInstalled = false;
                     if (repo.getParentRepo().getPackages(pkgName) != null) {
                         LOG.debug("Package " + pkgName + " already installed");
-                        boolean isInstalled = false;
                         Packages pkgs = repo.getParentRepo().getPackages(pkgName);
                         // check if installed package matches required version
                         if (pkgs != null) {
@@ -215,17 +216,17 @@ public class Deployment {
                                 LOG.debug("Package " + pkgName + " already installed");
                             }
                         }
-                        if (!isInstalled && loader != null) {
-                            final File depFile = loader.load(pkgName, version);
-                            if (depFile != null) {
-                                installAndDeploy(depFile, loader);
-                            } else {
-                                if (enforceDeps) {
-                                    LOG.warn("Missing dependency: package " + pkgName + " could not be resolved. This error " +
+                    }
+                    if (!isInstalled && loader != null) {
+                        final File depFile = loader.load(pkgName, version);
+                        if (depFile != null) {
+                            installAndDeploy(depFile, loader);
+                        } else {
+                            if (enforceDeps) {
+                                LOG.warn("Missing dependency: package " + pkgName + " could not be resolved. This error " +
                                         "is not fatal, but the package may not work as expected");
-                                } else {
-                                    throw new PackageException("Missing dependency: package " + pkgName + " could not be resolved.");
-                                }
+                            } else {
+                                throw new PackageException("Missing dependency: package " + pkgName + " could not be resolved.");
                             }
                         }
                     }
@@ -308,11 +309,14 @@ public class Deployment {
                 } else {
                     final ElementImpl target = findElement(repoXML, TARGET_COLL_ELEMENT);
                     if (target != null) {
-                        // determine target collection
-                        try {
-                            targetCollection = XmldbURI.create(getTargetCollection(target.getStringValue()));
-                        } catch (final Exception e) {
-                            throw new PackageException("Bad collection URI for <target> element: " + target.getStringValue(), e);
+                        final String targetPath = target.getStringValue();
+                        if (targetPath.length() > 0) {
+                            // determine target collection
+                            try {
+                                targetCollection = XmldbURI.create(getTargetCollection(targetPath));
+                            } catch (final Exception e) {
+                                throw new PackageException("Bad collection URI for <target> element: " + target.getStringValue(), e);
+                            }
                         }
                     }
                 }
@@ -440,14 +444,15 @@ public class Deployment {
             throws PackageException {
         // determine target collection
         XmldbURI targetCollection;
-        if (target == null) {
+        if (target == null || target.getStringValue().length() == 0) {
             final String pkgColl = pkg.getAbbrev() + "-" + pkg.getVersion();
             targetCollection = XmldbURI.SYSTEM.append("repo/" + pkgColl);
         } else {
+            final String targetPath = target.getStringValue();
             try {
-                targetCollection = XmldbURI.create(getTargetCollection(target.getStringValue()));
+                targetCollection = XmldbURI.create(getTargetCollection(targetPath));
             } catch (final Exception e) {
-                throw new PackageException("Bad collection URI for <target> element: " + target.getStringValue());
+                throw new PackageException("Bad collection URI for <target> element: " + targetPath);
             }
         }
         final TransactionManager mgr = broker.getBrokerPool().getTransactionManager();
@@ -747,7 +752,8 @@ public class Deployment {
     }
 
     /**
-     * Update repo.xml while copying it.
+     * Update repo.xml while copying it. For security reasons, make sure
+     * any default password is removed before uploading.
      */
     private class UpdatingDocumentReceiver extends DocumentBuilderReceiver {
 
@@ -763,8 +769,18 @@ public class Deployment {
         @Override
         public void startElement(QName qname, AttrList attribs) {
             stack.push(qname.getLocalName());
-            if (!("deployed".equals(qname.getLocalName()) || "permissions".equals(qname.getLocalName()))) {
-                super.startElement(qname, attribs);
+            AttrList newAttrs = attribs;
+            if (attribs != null && "permissions".equals(qname.getLocalName())) {
+                newAttrs = new AttrList();
+                for (int i = 0; i < attribs.getLength(); i++) {
+                    if (!"password". equals(attribs.getQName(i).getLocalName())) {
+                        newAttrs.addAttribute(attribs.getQName(i), attribs.getValue(i), attribs.getType(i));
+                    }
+                }
+            }
+
+            if (!"deployed".equals(qname.getLocalName())) {
+                super.startElement(qname, newAttrs);
             }
         }
 
@@ -772,7 +788,7 @@ public class Deployment {
         public void startElement(String namespaceURI, String localName,
                                  String qName, Attributes attrs) throws SAXException {
             stack.push(localName);
-            if (!("deployed".equals(localName) || "permissions".equals(localName)))
+            if (!"deployed".equals(localName))
                 {super.startElement(namespaceURI, localName, qName, attrs);}
         }
 
@@ -782,7 +798,7 @@ public class Deployment {
             if ("meta".equals(qname.getLocalName())) {
                 addDeployTime();
             }
-            if (!("deployed".equals(qname.getLocalName()) || "permissions".equals(qname.getLocalName()))) {
+            if (!"deployed".equals(qname.getLocalName())) {
                 super.endElement(qname);
             }
         }
@@ -794,7 +810,7 @@ public class Deployment {
             if ("meta".equals(localName)) {
                 addDeployTime();
             }
-            if (!("deployed".equals(localName) || "permissions".equals(localName))) {
+            if (!"deployed".equals(localName)) {
                 super.endElement(uri, localName, qName);
             }
         }
@@ -802,7 +818,7 @@ public class Deployment {
         @Override
         public void attribute(QName qname, String value) throws SAXException {
             final String current = stack.peek();
-            if (!"permissions".equals(current)) {
+            if (!("permissions".equals(current) && "password".equals(qname.getLocalName()))) {
                 super.attribute(qname, value);
             }
         }
