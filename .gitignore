@@ -34,6 +34,7 @@ tools/wrapper/conf/wrapper.conf.install
 tools/wrapper/bin/eXist-db.java.status
 tools/wrapper/bin/eXist-db.pid
 tools/wrapper/bin/eXist-db.status
+tools/ant/lib/appbundler-1.0.jar
 uninstall/
 webapp/WEB-INF/betterform-config.xml
 webapp/WEB-INF/betterform-version.info
