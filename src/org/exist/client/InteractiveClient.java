@@ -2685,7 +2685,7 @@ public class InteractiveClient {
 	if (!"".equals(SystemProperties.getInstance().getSystemProperty("git-commit", ""))) {
 	    builder.append(" (");
 	    builder.append(SystemProperties.getInstance().getSystemProperty("git-commit", "(unknown Git commit ID)"));
-	    builder.append(") ");
+	    builder.append(")");
 	}
         builder.append(", Copyright (C) 2001-");
 	builder.append(Calendar.getInstance().get(Calendar.YEAR));
@@ -2769,7 +2769,7 @@ public class InteractiveClient {
                     }
                 }
             }
-            return p + 1;
+            return p;
         }
     }
     
