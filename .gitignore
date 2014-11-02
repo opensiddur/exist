@@ -51,6 +51,7 @@ tools/wrapper/bin/eXist-db.pid
 tools/wrapper/bin/eXist-db.status
 tools/ant/lib/appbundler-1.0.jar
 uninstall/
+VERSION.txt
 webapp/WEB-INF/betterform-config.xml
 webapp/WEB-INF/betterform-version.info
 webapp/WEB-INF/dwr.xml
