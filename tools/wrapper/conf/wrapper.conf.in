@@ -85,6 +85,8 @@ wrapper.java.additional.5=-Dlog4j.configuration=file:../conf/log4j.xml
 # force headless mode
 wrapper.java.additional.6=-Djava.awt.headless=true
 
+# increase stack
+wrapper.java.additional.7=-Xss16m
 # JMX 
 #wrapper.java.additional.7=-Dcom.sun.management.jmxremote
 #wrapper.java.additional.8=-Dcom.sun.management.jmxremote.port=1099
@@ -100,7 +102,7 @@ wrapper.java.additional.6=-Djava.awt.headless=true
 wrapper.java.initmemory=512
 
 # Maximum Java Heap Size (in MB)
-wrapper.java.maxmemory=1024
+wrapper.java.maxmemory=1768
 
 # Application parameters.  Add parameters as needed starting from 1
 wrapper.app.parameter.1=jetty
