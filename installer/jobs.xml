@@ -4,13 +4,13 @@
     <job name="Setting admin password ...">
         <os family="windows"/>
         <executefile name="$INSTALL_PATH/bin/setup.bat">
-            <arg>pass:$adminPasswd</arg>
+            <arg>pass:password</arg>
         </executefile>
     </job>
     <job name="Setting admin password ...">
         <os family="unix"/>
         <executefile name="$INSTALL_PATH/bin/setup.sh">
-            <arg>pass:$adminPasswd</arg>
+            <arg>pass:password</arg>
         </executefile>
     </job>
 </processing>
