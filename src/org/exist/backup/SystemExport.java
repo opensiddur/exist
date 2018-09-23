@@ -34,10 +34,12 @@ import org.exist.Namespaces;
 import org.exist.collections.Collection;
 import org.exist.management.Agent;
 import org.exist.management.AgentFactory;
+import org.exist.numbering.NodeId;
 import org.exist.security.ACLPermission;
 import org.exist.security.Permission;
 import org.exist.security.PermissionDeniedException;
 import org.exist.security.internal.AccountImpl;
+import org.exist.stax.ExtendedXMLStreamReader;
 import org.exist.storage.DBBroker;
 import org.exist.storage.DataBackup;
 import org.exist.storage.NativeBroker;
@@ -117,44 +119,41 @@ public class SystemExport {
 
     private int collectionCount = -1;
 
-    public Properties defaultOutputProperties = new Properties();
-
-    public Properties contentsOutputProps = new Properties();
+    private final Properties defaultOutputProperties = new Properties();
+    private final Properties contentsOutputProps = new Properties();
 
     private DBBroker broker;
     private StatusCallback callback = null;
     private boolean directAccess = false;
     private ProcessMonitor.Monitor monitor = null;
     private BackupHandler bh = null;
-
-    {
-        defaultOutputProperties.setProperty(OutputKeys.INDENT, "no");
-        defaultOutputProperties.setProperty(OutputKeys.ENCODING, "UTF-8");
-        defaultOutputProperties.setProperty(OutputKeys.OMIT_XML_DECLARATION, "no");
-        defaultOutputProperties.setProperty(EXistOutputKeys.EXPAND_XINCLUDES, "no");
-        defaultOutputProperties.setProperty(EXistOutputKeys.PROCESS_XSL_PI, "no");
-    }
-
-    {
-        contentsOutputProps.setProperty(OutputKeys.INDENT, "yes");
-    }
-
     private ChainOfReceiversFactory chainFactory;
 
-    public SystemExport(DBBroker broker, StatusCallback callback, ProcessMonitor.Monitor monitor, boolean direct, ChainOfReceiversFactory chainFactory) {
+    public SystemExport(final DBBroker broker, final StatusCallback callback, final ProcessMonitor.Monitor monitor,
+            final boolean direct, final ChainOfReceiversFactory chainFactory) {
         this.broker = broker;
         this.callback = callback;
         this.monitor = monitor;
         this.directAccess = direct;
         this.chainFactory = chainFactory;
 
+        defaultOutputProperties.setProperty(OutputKeys.INDENT, "no");
+        defaultOutputProperties.setProperty(OutputKeys.ENCODING, "UTF-8");
+        defaultOutputProperties.setProperty(OutputKeys.OMIT_XML_DECLARATION, "no");
+        defaultOutputProperties.setProperty(EXistOutputKeys.EXPAND_XINCLUDES, "no");
+        defaultOutputProperties.setProperty(EXistOutputKeys.PROCESS_XSL_PI, "no");
+
+        contentsOutputProps.setProperty(OutputKeys.INDENT, "yes");
+
         bh = broker.getDatabase().getPluginsManager().getBackupHandler(LOG);
     }
 
-    public SystemExport(DBBroker broker, StatusCallback callback, ProcessMonitor.Monitor monitor, boolean direct) {
+    @SuppressWarnings("unchecked")
+    public SystemExport(final DBBroker broker, final StatusCallback callback, final ProcessMonitor.Monitor monitor,
+            final boolean direct) {
         this(broker, callback, monitor, direct, null);
 
-        List<String> list = (List<String>) broker.getConfiguration().getProperty(CONFIG_FILTERS);
+        final List<String> list = (List<String>) broker.getConfiguration().getProperty(CONFIG_FILTERS);
         if (list != null) {
             chainFactory = new ChainOfReceiversFactory(list);
         }
@@ -612,7 +611,6 @@ public class SystemExport {
      */
     private void writeXML(DocumentImpl doc, Receiver receiver) {
         try {
-            XMLStreamReader reader;
             char[] ch;
             int nsdecls;
             final NamespaceSupport nsSupport = new NamespaceSupport();
@@ -625,7 +623,11 @@ public class SystemExport {
 
             for (int i = 0; i < children.getLength(); i++) {
                 final StoredNode child = (StoredNode) children.item(i);
-                reader = broker.getXMLStreamReader(child, false);
+
+                final int thisLevel = child.getNodeId().getTreeLevel();
+                final int childLevel = child.getNodeType() == Node.ELEMENT_NODE ? thisLevel + 1 : thisLevel;
+
+                final XMLStreamReader reader = broker.getXMLStreamReader(child, false);
 
                 while (reader.hasNext()) {
                     final int status = reader.next();
@@ -633,11 +635,10 @@ public class SystemExport {
                     switch (status) {
 
                         case XMLStreamReader.START_DOCUMENT:
-                        case XMLStreamReader.END_DOCUMENT: {
+                        case XMLStreamReader.END_DOCUMENT:
                             break;
-                        }
 
-                        case XMLStreamReader.START_ELEMENT: {
+                        case XMLStreamReader.START_ELEMENT:
                             nsdecls = reader.getNamespaceCount();
                             for (int ni = 0; ni < nsdecls; ni++) {
                                 receiver.startPrefixMapping(reader.getNamespacePrefix(ni), reader.getNamespaceURI(ni));
@@ -650,41 +651,43 @@ public class SystemExport {
                             }
                             receiver.startElement(new QName(reader.getLocalName(), reader.getNamespaceURI(), reader.getPrefix()), attribs);
                             break;
-                        }
 
-                        case XMLStreamReader.END_ELEMENT: {
+                        case XMLStreamReader.END_ELEMENT:
                             receiver.endElement(new QName(reader.getLocalName(), reader.getNamespaceURI(), reader.getPrefix()));
                             nsdecls = reader.getNamespaceCount();
                             for (int ni = 0; ni < nsdecls; ni++) {
                                 receiver.endPrefixMapping(reader.getNamespacePrefix(ni));
                             }
-                            break;
-                        }
 
-                        case XMLStreamReader.CHARACTERS: {
+                            final NodeId otherId = (NodeId) reader.getProperty(ExtendedXMLStreamReader.PROPERTY_NODE_ID);
+                            final int otherLevel = otherId.getTreeLevel();
+                            if (childLevel != thisLevel && otherLevel == thisLevel) {
+                                // finished `this` element...
+                                break;  // exit-while
+                            }
+
+                            break;
+
+                        case XMLStreamReader.CHARACTERS:
                             receiver.characters(reader.getText());
                             break;
-                        }
 
-                        case XMLStreamReader.CDATA: {
+                        case XMLStreamReader.CDATA:
                             ch = reader.getTextCharacters();
                             receiver.cdataSection(ch, 0, ch.length);
                             break;
-                        }
 
-                        case XMLStreamReader.COMMENT: {
+                        case XMLStreamReader.COMMENT:
                             ch = reader.getTextCharacters();
                             receiver.comment(ch, 0, ch.length);
                             break;
-                        }
 
-                        case XMLStreamReader.PROCESSING_INSTRUCTION: {
+                        case XMLStreamReader.PROCESSING_INSTRUCTION:
                             receiver.processingInstruction(reader.getPITarget(), reader.getPIData());
                             break;
-                        }
                     }
 
-                    if ((child.getNodeType() == Node.COMMENT_NODE) || (child.getNodeType() == Node.PROCESSING_INSTRUCTION_NODE)) {
+                    if (child.getNodeType() == Node.COMMENT_NODE || child.getNodeType() == Node.PROCESSING_INSTRUCTION_NODE) {
                         break;
                     }
                 }

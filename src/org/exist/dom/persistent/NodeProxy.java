@@ -828,7 +828,7 @@ public class NodeProxy implements NodeSet, NodeValue, NodeHandle, DocumentSet, C
     }
 
     @Override
-    public SequenceIterator iterate() throws XPathException {
+    public SequenceIterator iterate() {
         return new SingleNodeIterator(this);
     }
 
@@ -892,9 +892,8 @@ public class NodeProxy implements NodeSet, NodeValue, NodeHandle, DocumentSet, C
         return 1;
     }
 
-    //TODO : evaluate both semantics
     @Override
-    public int getItemCount() {
+    public long getItemCountLong() {
         return 1;
     }
 
@@ -1201,6 +1200,7 @@ public class NodeProxy implements NodeSet, NodeValue, NodeHandle, DocumentSet, C
         if(nodeType != UNKNOWN_NODE_TYPE && nodeType != Node.ELEMENT_NODE) {
             return NodeSet.EMPTY_SET;
         }
+
         try {
             NewArrayNodeSet result = null;
             final IEmbeddedXMLStreamReader reader = broker.getXMLStreamReader(this, true);
@@ -1208,16 +1208,18 @@ public class NodeProxy implements NodeSet, NodeValue, NodeHandle, DocumentSet, C
             if(status != XMLStreamReader.START_ELEMENT) {
                 return NodeSet.EMPTY_SET;
             }
+
             final int attrs = reader.getAttributeCount();
-            for(int i = 0; i < attrs; i++) {
+            for (int i = 0; i < attrs; i++) {
                 status = reader.next();
                 if(status != XMLStreamReader.ATTRIBUTE) {
                     break;
                 }
+
                 final AttrImpl attr = (AttrImpl) reader.getNode();
-                if(test.matches(attr)) {
+                if (test.matches(attr)) {
                     final NodeProxy child = new NodeProxy(attr);
-                    if(Expression.NO_CONTEXT_ID != contextId) {
+                    if (Expression.NO_CONTEXT_ID != contextId) {
                         child.addContextNode(contextId, this);
                     } else {
                         child.copyContext(this);
@@ -1232,9 +1234,7 @@ public class NodeProxy implements NodeSet, NodeValue, NodeHandle, DocumentSet, C
                 }
             }
             return result == null ? NodeSet.EMPTY_SET : result;
-        } catch(final IOException e) {
-            throw new RuntimeException(e.getMessage(), e);
-        } catch(final XMLStreamException e) {
+        } catch (final IOException | XMLStreamException e) {
             throw new RuntimeException(e.getMessage(), e);
         }
     }
@@ -1300,6 +1300,23 @@ public class NodeProxy implements NodeSet, NodeValue, NodeHandle, DocumentSet, C
                 hasNext = false;
                 return node;
             }
+        }
+
+        @Override
+        public long skippable() {
+            if (hasNext) {
+                return 1;
+            }
+            return 0;
+        }
+
+        @Override
+        public long skip(final long n) {
+            final long skip = Math.min(n, hasNext ? 1 : 0);
+            if(skip == 1) {
+                hasNext = false;
+            }
+            return skip;
         }
 
         @Override
@@ -1454,24 +1471,24 @@ public class NodeProxy implements NodeSet, NodeValue, NodeHandle, DocumentSet, C
         try {
             final IEmbeddedXMLStreamReader reader = broker.getXMLStreamReader(this, true);
             int status = reader.next();
-            if(status != XMLStreamReader.START_ELEMENT) {
+            if (status != XMLStreamReader.START_ELEMENT) {
                 return false;
             }
+
             final int attrs = reader.getAttributeCount();
-            for(int i = 0; i < attrs; i++) {
+            for (int i = 0; i < attrs; i++) {
                 status = reader.next();
-                if(status != XMLStreamReader.ATTRIBUTE) {
+                if (status != XMLStreamReader.ATTRIBUTE) {
                     break;
                 }
+
                 final AttrImpl attr = (AttrImpl) reader.getNode();
-                if(test.matches(attr)) {
+                if (test.matches(attr)) {
                     return true;
                 }
             }
             return false;
-        } catch(final IOException e) {
-            throw new RuntimeException(e.getMessage(), e);
-        } catch(final XMLStreamException e) {
+        } catch (final IOException | XMLStreamException e) {
             throw new RuntimeException(e.getMessage(), e);
         }
     }

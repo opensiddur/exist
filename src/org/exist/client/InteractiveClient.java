@@ -122,10 +122,11 @@ public class InteractiveClient {
     protected static final String NO_EMBED_MODE_DEFAULT = "FALSE";
     protected static final String USER_DEFAULT = SecurityManager.DBA_USER;
 
-    // Set
-    protected final static Properties defaultProps = new Properties();
+    protected static final String driver = "org.exist.xmldb.DatabaseImpl";
 
-    {
+    // Set
+    private final static Properties defaultProps = new Properties();
+    static {
         defaultProps.setProperty(DRIVER, driver);
         defaultProps.setProperty(URI, URI_DEFAULT);
         defaultProps.setProperty(USER, USER_DEFAULT);
@@ -140,7 +141,6 @@ public class InteractiveClient {
 
     protected static final int colSizes[] = new int[]{10, 10, 10, -1};
 
-    protected static final String driver = "org.exist.xmldb.DatabaseImpl";
     protected static String configuration = null;
 
     protected final TreeSet<String> completitions = new TreeSet<>();
@@ -564,7 +564,8 @@ public class InteractiveClient {
                     messageln("cp requires two arguments.");
                     return true;
                 }
-                final XmldbURI src, dest;
+                final XmldbURI src;
+                final XmldbURI dest;
                 try {
                     src = XmldbURI.xmldbUriFor(args[1]);
                     dest = XmldbURI.xmldbUriFor(args[2]);
@@ -2155,17 +2156,18 @@ public class InteractiveClient {
         }
 
         // prompt for password if needed
-        if (interactive && options.startGUI) {
+        if (!hasLoginDetails(options)) {
+            if (interactive && options.startGUI) {
+                final boolean haveLoginData = getGuiLoginData(properties);
+                if (!haveLoginData) {
+                    return false;
+                }
 
-            final boolean haveLoginData = getGuiLoginData(properties);
-            if (!haveLoginData) {
-                return false;
-            }
-
-        } else if (options.username.isPresent() && !options.password.isPresent()) {
-            try {
-                properties.setProperty(PASSWORD, console.readLine("password: ", Character.valueOf('*')));
-            } catch (final Exception e) {
+            } else if (options.username.isPresent() && !options.password.isPresent()) {
+                try {
+                    properties.setProperty(PASSWORD, console.readLine("password: ", Character.valueOf('*')));
+                } catch (final Exception e) {
+                }
             }
         }
 
@@ -2302,6 +2304,12 @@ public class InteractiveClient {
             shutdown(false);
         }
         return true;
+    }
+
+    private boolean hasLoginDetails(final CommandlineOptions options) {
+        return options.username.isPresent()
+                && options.password.isPresent()
+                && (options.embedded || options.options.containsKey("uri"));
     }
 
     public static String getExceptionMessage(Throwable e) {

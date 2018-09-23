@@ -1,6 +1,8 @@
-# -*-Shell-script-*-
-# Common eXist script functions and settings for getopt
-# $Id$
+#!/usr/bin/env bash
+
+##
+# Common eXist-db script functions and settings for getopt
+##
 
 CLIENT_OPTS="|-u|--user|-P|--password|-p|--parse|-C|--config|-r|--remove|-c|--collection|-f|--resource|-g|--get|-m|--mkcol|-R|--rmcol|-x|--xpath|-n|--howmany|-o|--option|-O|--output|-F|--file|-t|--threads|-X|--xupdate|-T|--trace|"
 
@@ -40,27 +42,27 @@ is_integer() {
 }
 
 is_jmx_switch() {
-    if substring "${JMX_OPTS}" "|$1|"; then
-	JMX_ENABLED=1;
-	return 0;
-    elif substring "|$1|" "$JMX_SHORT_EQUAL"; then
-	JMX_ENABLED=1;
-	JMX_PORT="${1#${JMX_SHORT_EQUAL}}" && is_integer "${JMX_PORT}";
-	return 0;
-    elif substring "|$1|" "${JMX_LONG_EQUAL}"; then
-	JMX_ENABLED=1;
-	JMX_PORT="${1#${JMX_LONG_EQUAL}}" && is_integer "${JMX_PORT}";
-	return 0;
-    elif substring "|$1|" "${JMX_SHORT}"; then
-	JMX_ENABLED=1;
-	JMX_PORT="${1#${JMX_SHORT}}" && is_integer "${JMX_PORT}";
-	return 0;
-    elif substring "|$1|" "${JMX_LONG}"; then
-	JMX_ENABLED=1;
-	JMX_PORT="${1#${JMX_LONG}}" && is_integer "${JMX_PORT}";
-	return 0;
-    fi
-    return 1;
+	if substring "${JMX_OPTS}" "|$1|"; then
+		JMX_ENABLED=1;
+		return 0;
+	elif substring "|X$1|" "X$JMX_SHORT_EQUAL"; then
+		JMX_ENABLED=1;
+		JMX_PORT="${1#${JMX_SHORT_EQUAL}}" && is_integer "${JMX_PORT}";
+		return 0;
+	elif substring "|X$1|" "X${JMX_LONG_EQUAL}"; then
+		JMX_ENABLED=1;
+		JMX_PORT="${1#${JMX_LONG_EQUAL}}" && is_integer "${JMX_PORT}";
+		return 0;
+	elif substring "|X$1|" "X${JMX_SHORT}"; then
+		JMX_ENABLED=1;
+		JMX_PORT="${1#${JMX_SHORT}}" && is_integer "${JMX_PORT}";
+		return 0;
+	elif substring "|X$1|" "X${JMX_LONG}"; then
+		JMX_ENABLED=1;
+		JMX_PORT="${1#${JMX_LONG}}" && is_integer "${JMX_PORT}";
+		return 0;
+	fi
+	return 1;
 }
 
 check_quiet_switch() {

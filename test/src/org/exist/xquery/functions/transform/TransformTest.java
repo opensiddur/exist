@@ -19,6 +19,7 @@
  */
 package org.exist.xquery.functions.transform;
 
+import com.evolvedbinary.j8fu.tuple.Tuple2;
 import org.exist.EXistException;
 import org.exist.collections.Collection;
 import org.exist.collections.IndexInfo;
@@ -35,31 +36,38 @@ import org.exist.xquery.XPathException;
 import org.exist.xquery.XQuery;
 import org.exist.xquery.value.Item;
 import org.exist.xquery.value.Sequence;
+import org.exist.xquery.value.Type;
 import org.junit.*;
+import org.w3c.dom.Document;
 import org.w3c.dom.Element;
+import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 import org.xml.sax.SAXException;
+import org.xmlunit.builder.DiffBuilder;
+import org.xmlunit.builder.Input;
+import org.xmlunit.diff.Diff;
 
+import javax.xml.transform.Source;
 import java.io.IOException;
 import java.util.Optional;
 
-import static junit.framework.TestCase.assertTrue;
+import static com.evolvedbinary.j8fu.tuple.Tuple.Tuple;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.assertNotNull;
 
 /**
- * @see https://github.com/eXist-db/exist/issues/1506
- *
  * @author <a href="mailto:adam@evolvedbinary.com">Adam Retter</a>
  */
 public class TransformTest {
 
     @ClassRule
-    public static ExistEmbeddedServer existEmbeddedServer = new ExistEmbeddedServer(true, false);
+    public static ExistEmbeddedServer existEmbeddedServer = new ExistEmbeddedServer(true, true);
 
-    private static final XmldbURI TEST_COLLECTION = XmldbURI.create("/db/transform-test");
+    private static final XmldbURI TEST_IDS_COLLECTION = XmldbURI.create("/db/transform-ids-test");
 
-    private static final XmldbURI INPUT_XML_NAME = XmldbURI.create("inputListOps.xml");
+    private static final XmldbURI INPUT_LIST_XML_NAME = XmldbURI.create("inputListOps.xml");
 
     private static final String INPUT_XML =
             "<listOps>\n" +
@@ -120,9 +128,9 @@ public class TransformTest {
             "xquery version \"3.0\";\n" +
             "\n" +
             "(:Read document with xsl:for-each and look for key in the dictionary document :)\n" +
-            "declare variable $xsltPath as xs:string := '" + TEST_COLLECTION.getCollectionPath() + "';\n" +
-            "declare variable $listOpsFileUri as xs:string := '" + TEST_COLLECTION.getCollectionPath()+ "/listOpsErr.xml';\n" +
-            "declare variable $inputFileUri as xs:string := '" + TEST_COLLECTION.getCollectionPath() + "/inputListOps.xml';\n" +
+            "declare variable $xsltPath as xs:string := '" + TEST_IDS_COLLECTION.getCollectionPath() + "';\n" +
+            "declare variable $listOpsFileUri as xs:string := '" + TEST_IDS_COLLECTION.getCollectionPath()+ "/listOpsErr.xml';\n" +
+            "declare variable $inputFileUri as xs:string := '" + TEST_IDS_COLLECTION.getCollectionPath() + "/inputListOps.xml';\n" +
             "\n" +
             "let $params :=  <parameters>\n" +
             "                    <param name=\"listOpsFileUri\" value=\"{$listOpsFileUri}\" />\n" +
@@ -132,12 +140,78 @@ public class TransformTest {
             "\n" +
             "return transform:transform($xmlData, doc(concat($xsltPath, '/', 'testListOps.xsl')),$params)";
 
+    private static final XmldbURI TEST_DOCUMENT_XSLT_COLLECTION = XmldbURI.create("/db/transform-doc-test");
+    private static final XmldbURI DOCUMENT_XSLT_NAME = XmldbURI.create("xsl-doc.xslt");
+
+    private static final String DOCUMENT_XSLT =
+            "<xsl:stylesheet xmlns:xsl=\"http://www.w3.org/1999/XSL/Transform\" version=\"2.0\">\n" +
+            "\t<xsl:template name=\"xsl-doc\">\n" +
+            "\t\t<xsl:document><elem1/></xsl:document>\n" +
+            "\t</xsl:template>\n" +
+            "</xsl:stylesheet>";
+
+    private static final String DOCUMENT_XSLT_QUERY =
+            "import module namespace transform=\"http://exist-db.org/xquery/transform\";\n" +
+            "\n" +
+            "let $xsl := doc('" + TEST_DOCUMENT_XSLT_COLLECTION.append(DOCUMENT_XSLT_NAME).getRawCollectionPath() + "')\n" +
+            "return\n" +
+            "\ttransform:transform((), $xsl, (), <attributes><attr name=\"http://saxon.sf.net/feature/initialTemplate\" value=\"xsl-doc\"/></attributes>, ())";
+
+    private static final XmldbURI SIMPLE_XML_NAME = XmldbURI.create("simple.xml");
+    private static final XmldbURI TEST_SIMPLE_XML_COLLECTION = XmldbURI.create("/db/transform-simple-test");
+    private static final XmldbURI TEST_SIMPLE_XML_WITH_COMMENT_COLLECTION = XmldbURI.create("/db/transform-simple-1c-test");
+    private static final XmldbURI TEST_SIMPLE_XML_WITH_TWO_COMMENTS_COLLECTION = XmldbURI.create("/db/transform-simple-2c-test");
+
+    private static final String SIMPLE_XML =
+            "<n/>";
+
+    private static final String SIMPLE_XML_WITH_COMMENT =
+            "<!-- -->\n" +
+            "<n/>";
+
+    private static final String SIMPLE_XML_WITH_TWO_COMMENTS =
+            "<!-- 1 --><!-- 2 -->\n" +
+            "<n/>";
+
+    private static final XmldbURI COUNT_DESCENDANTS_XSLT_NAME = XmldbURI.create("count-descendants.xslt");
+
+    private static final XmldbURI TWO_NODES_XML_NAME = XmldbURI.create("two-nodes.xml");
+    private static final XmldbURI TEST_TWO_NODES_COLLECTION = XmldbURI.create("/db/transform-two-nodes-test");
+    private static final String TWO_NODES_XML = "<a><b/></a>";
+
+    private static final XmldbURI COUNT_DESCENDANTS_TWO_NODES_XSLT_NAME = XmldbURI.create("count-descendants-two-nodes.xslt");
+
+    private static final String COUNT_DESCENDANTS_TWO_NODES_XSLT =
+            "<xsl:stylesheet xmlns:xsl=\"http://www.w3.org/1999/XSL/Transform\" version=\"2.0\">\n" +
+            "\n" +
+            "\t<xsl:variable name=\"xml\" select=\"document('" + TEST_TWO_NODES_COLLECTION.append(TWO_NODES_XML_NAME).getRawCollectionPath() + "')\"/>\n" +
+            "\t\n" +
+            "\t<xsl:template match=\"/\">\n" +
+            "\t\t<counts>\n" +
+            "\t\t\t<count1><xsl:value-of select=\"count(doc($xml)//*)\"/></count1>\n" +
+            "\t\t\t<count2><xsl:value-of select=\"count(doc($xml)/a//*)\"/></count2>\n" +
+            "\t\t</counts>\n" +
+            "\t</xsl:template>\n" +
+            "\n" +
+            "</xsl:stylesheet>";
+
+    private static final String COUNT_DESCENDANTS_TWO_NODES_QUERY =
+            "import module namespace transform=\"http://exist-db.org/xquery/transform\";\n" +
+                "\n" +
+                "let $xml := doc('" + TEST_TWO_NODES_COLLECTION.append(TWO_NODES_XML_NAME).getRawCollectionPath() + "')\n" +
+                "let $xsl := doc('" + TEST_TWO_NODES_COLLECTION.append(COUNT_DESCENDANTS_TWO_NODES_XSLT_NAME).getRawCollectionPath() + "')\n" +
+                "return\n" +
+                "\ttransform:transform($xml, $xsl, ())";
+
+
+    /**
+     * {@see https://github.com/eXist-db/exist/issues/1506}
+     */
     @Test
     public void keys() throws EXistException, PermissionDeniedException, XPathException {
         final BrokerPool pool = existEmbeddedServer.getBrokerPool();
         final XQuery xquery = pool.getXQueryService();
-        try(final DBBroker broker = pool.get(Optional.of(pool.getSecurityManager().getSystemSubject()));
-            /*final Txn transaction = existEmbeddedServer.getBrokerPool().getTransactionManager().beginTransaction() */) {
+        try(final DBBroker broker = pool.get(Optional.of(pool.getSecurityManager().getSystemSubject()))) {
 
             final Sequence sequence = xquery.execute(broker, LIST_OPS_XQUERY, null);
             assertNotNull(sequence);
@@ -157,9 +231,145 @@ public class TransformTest {
         }
     }
 
-    private static void storeXml(final DBBroker broker, final Txn transaction, final Collection collection, final XmldbURI name, final String xml) throws LockException, SAXException, PermissionDeniedException, EXistException, IOException {
-        final IndexInfo indexInfo = collection.validateXMLResource(transaction, broker, name, xml);
-        collection.store(transaction, broker, indexInfo, xml);
+    @Ignore("https://github.com/eXist-db/exist/issues/2096")
+    @Test
+    public void xslDocument() throws EXistException, PermissionDeniedException, XPathException {
+        final BrokerPool pool = existEmbeddedServer.getBrokerPool();
+        final XQuery xquery = pool.getXQueryService();
+        try(final DBBroker broker = pool.get(Optional.of(pool.getSecurityManager().getSystemSubject()))) {
+            final Sequence sequence = xquery.execute(broker, DOCUMENT_XSLT_QUERY, null);
+
+            assertNotNull(sequence);
+            assertTrue(sequence.hasOne());
+
+            final Item item = sequence.itemAt(0);
+
+            assertEquals(Type.DOCUMENT, item.getType());
+
+            final Source expected = Input.fromString("<elem1/>").build();
+            final Source actual = Input.fromDocument(sequence.itemAt(0).toJavaObject(Document.class)).build();
+
+            final Diff diff = DiffBuilder.compare(actual)
+                    .withTest(expected)
+                    .checkForSimilar()
+                    .build();
+
+            assertFalse(diff.toString(), diff.hasDifferences());
+        }
+    }
+
+    /**
+     * {@see https://github.com/eXist-db/exist/issues/1691}
+     */
+    @Test
+    public void transformReindexTransform() throws XPathException, PermissionDeniedException, EXistException, IOException, LockException {
+        transform1(TEST_SIMPLE_XML_COLLECTION);
+        reindex(TEST_SIMPLE_XML_COLLECTION);
+        transform1(TEST_SIMPLE_XML_COLLECTION);
+    }
+
+    /**
+     * {@see https://github.com/eXist-db/exist/issues/1691}
+     */
+    @Test
+    public void transformReindexTransform_with_comment() throws XPathException, PermissionDeniedException, EXistException, IOException, LockException {
+        transform1(TEST_SIMPLE_XML_WITH_COMMENT_COLLECTION);
+        reindex(TEST_SIMPLE_XML_WITH_COMMENT_COLLECTION);
+        transform1(TEST_SIMPLE_XML_WITH_COMMENT_COLLECTION);
+    }
+
+    /**
+     * {@see https://github.com/eXist-db/exist/issues/1691}
+     */
+    @Test
+    public void transformReindexTransform_with_two_comments() throws XPathException, PermissionDeniedException, EXistException, IOException, LockException {
+        transform1(TEST_SIMPLE_XML_WITH_TWO_COMMENTS_COLLECTION);
+        reindex(TEST_SIMPLE_XML_WITH_TWO_COMMENTS_COLLECTION);
+        transform1(TEST_SIMPLE_XML_WITH_TWO_COMMENTS_COLLECTION);
+    }
+
+    /**
+     * {@see https://github.com/eXist-db/exist/issues/1691}
+     */
+    @Test
+    public void twoNodesCountDescendants() throws EXistException, PermissionDeniedException, XPathException, IOException, LockException {
+        transform_twoNodesCountDescendants();
+        reindex(TEST_TWO_NODES_COLLECTION);
+        transform_twoNodesCountDescendants();
+    }
+
+    private static void transform1(final XmldbURI collectionUri) throws EXistException, PermissionDeniedException, XPathException {
+        final BrokerPool pool = existEmbeddedServer.getBrokerPool();
+        final XQuery xquery = pool.getXQueryService();
+        try(final DBBroker broker = pool.get(Optional.of(pool.getSecurityManager().getSystemSubject()))) {
+            final Sequence sequence = xquery.execute(broker, getCountDescendantsXquery(collectionUri), null);
+
+            assertNotNull(sequence);
+            assertTrue(sequence.hasOne());
+
+            final Source expected = Input.fromString("<count-descendants>1</count-descendants>").build();
+            final Source actual = Input.fromDocument(sequence.itemAt(0).toJavaObject(Node.class).getOwnerDocument()).build();
+
+            final Diff diff = DiffBuilder.compare(expected)
+                    .withTest(actual)
+                    .checkForSimilar()
+                    .build();
+
+            assertFalse(diff.toString(), diff.hasDifferences());
+        }
+    }
+
+    private void reindex(final XmldbURI collectionUri) throws EXistException, PermissionDeniedException, IOException, LockException {
+        final BrokerPool pool = existEmbeddedServer.getBrokerPool();
+        try(final DBBroker broker = pool.get(Optional.of(pool.getSecurityManager().getSystemSubject()));
+            final Txn transaction = pool.getTransactionManager().beginTransaction()) {
+            broker.reindexCollection(collectionUri);
+            transaction.commit();
+        }
+    }
+
+    private static String getCountDescendantsXquery(final XmldbURI collectionUri) {
+        return
+                "import module namespace transform=\"http://exist-db.org/xquery/transform\";\n" +
+                "\n" +
+                "let $xml := doc('" + collectionUri.append(SIMPLE_XML_NAME).getRawCollectionPath() + "')\n" +
+                "let $xsl := doc('" + collectionUri.append(COUNT_DESCENDANTS_XSLT_NAME).getRawCollectionPath() + "')\n" +
+                "return\n" +
+                "\ttransform:transform($xml, $xsl, ())";
+    }
+
+    private static String getCountDescendantsXslt(final XmldbURI collectionUri) {
+        return
+                "<xsl:stylesheet xmlns:xsl=\"http://www.w3.org/1999/XSL/Transform\" version=\"2.0\">\n" +
+                "\n" +
+                "\t<xsl:variable name=\"xml\" select=\"document('" + collectionUri.append(SIMPLE_XML_NAME).getRawCollectionPath() + "')\"/>\n" +
+                "\t\n" +
+                "\t<xsl:template match=\"/\">\n" +
+                "\t\t<count-descendants><xsl:value-of select=\"count($xml//*)\"/></count-descendants>\n" +
+                "\t</xsl:template>\n" +
+                "\n" +
+                "</xsl:stylesheet>";
+    }
+
+    private static void transform_twoNodesCountDescendants() throws EXistException, PermissionDeniedException, XPathException {
+        final BrokerPool pool = existEmbeddedServer.getBrokerPool();
+        final XQuery xquery = pool.getXQueryService();
+        try(final DBBroker broker = pool.get(Optional.of(pool.getSecurityManager().getSystemSubject()))) {
+            final Sequence sequence = xquery.execute(broker, COUNT_DESCENDANTS_TWO_NODES_QUERY, null);
+
+            assertNotNull(sequence);
+            assertTrue(sequence.hasOne());
+
+            final Source expected = Input.fromString("<counts><count1>2</count1><count2>1</count2></counts>").build();
+            final Source actual = Input.fromDocument(sequence.itemAt(0).toJavaObject(Node.class).getOwnerDocument()).build();
+
+            final Diff diff = DiffBuilder.compare(expected)
+                    .withTest(actual)
+                    .checkForSimilar()
+                    .build();
+
+            assertFalse(diff.toString(), diff.hasDifferences());
+        }
     }
 
     @BeforeClass
@@ -167,20 +377,72 @@ public class TransformTest {
         final BrokerPool pool = existEmbeddedServer.getBrokerPool();
         try(final DBBroker broker = pool.get(Optional.of(pool.getSecurityManager().getSystemSubject()));
             final Txn transaction = pool.getTransactionManager().beginTransaction()) {
-            final Collection testCollection = broker.getOrCreateCollection(transaction, TEST_COLLECTION);
-            try {
-                testCollection.getLock().acquire(Lock.LockMode.WRITE_LOCK);
 
-                storeXml(broker, transaction, testCollection, LIST_OPS_XSLT_NAME, LIST_OPS_XSLT);
-                storeXml(broker, transaction, testCollection, INPUT_XML_NAME, INPUT_XML);
-                storeXml(broker, transaction, testCollection, DICTIONARY_XML_NAME, DICTIONARY_XML);
+            createCollection(broker, transaction, TEST_IDS_COLLECTION,
+                    Tuple(LIST_OPS_XSLT_NAME, LIST_OPS_XSLT),
+                    Tuple(INPUT_LIST_XML_NAME, INPUT_XML),
+                    Tuple(DICTIONARY_XML_NAME, DICTIONARY_XML)
+            );
 
-                broker.saveCollection(transaction, testCollection);
-            } finally {
-                testCollection.getLock().acquire(Lock.LockMode.WRITE_LOCK);
-            }
+            createCollection(broker, transaction, TEST_DOCUMENT_XSLT_COLLECTION,
+                    Tuple(DOCUMENT_XSLT_NAME, DOCUMENT_XSLT)
+            );
+
+            createCollection(broker, transaction, TEST_SIMPLE_XML_COLLECTION,
+                    Tuple(SIMPLE_XML_NAME, SIMPLE_XML),
+                    Tuple(COUNT_DESCENDANTS_XSLT_NAME, getCountDescendantsXslt(TEST_SIMPLE_XML_COLLECTION))
+            );
+
+            createCollection(broker, transaction, TEST_SIMPLE_XML_WITH_COMMENT_COLLECTION,
+                    Tuple(SIMPLE_XML_NAME, SIMPLE_XML_WITH_COMMENT),
+                    Tuple(COUNT_DESCENDANTS_XSLT_NAME, getCountDescendantsXslt(TEST_SIMPLE_XML_WITH_COMMENT_COLLECTION))
+            );
+
+            createCollection(broker, transaction, TEST_SIMPLE_XML_WITH_TWO_COMMENTS_COLLECTION,
+                    Tuple(SIMPLE_XML_NAME, SIMPLE_XML_WITH_TWO_COMMENTS),
+                    Tuple(COUNT_DESCENDANTS_XSLT_NAME, getCountDescendantsXslt(TEST_SIMPLE_XML_WITH_TWO_COMMENTS_COLLECTION))
+            );
+
+            createCollection(broker, transaction, TEST_TWO_NODES_COLLECTION,
+                    Tuple(TWO_NODES_XML_NAME, TWO_NODES_XML),
+                    Tuple(COUNT_DESCENDANTS_TWO_NODES_XSLT_NAME, COUNT_DESCENDANTS_TWO_NODES_XSLT)
+            );
 
             transaction.commit();
+        }
+    }
+
+    @SafeVarargs
+    private static void createCollection(final DBBroker broker, final Txn transaction, final XmldbURI collectionUri, final Tuple2<XmldbURI, String>... docs) throws PermissionDeniedException, IOException, SAXException, LockException, EXistException {
+
+        final Collection collection = broker.getOrCreateCollection(transaction, collectionUri);
+        try {
+            collection.getLock().acquire(Lock.LockMode.WRITE_LOCK);
+            broker.saveCollection(transaction, collection);
+            for (final Tuple2<XmldbURI, String> doc : docs) {
+                storeXml(broker, transaction, collection, doc._1, doc._2);
+            }
+        } finally {
+            collection.getLock().release(Lock.LockMode.WRITE_LOCK);
+        }
+    }
+
+    private static void storeXml(final DBBroker broker, final Txn transaction, final Collection collection, final XmldbURI name, final String xml) throws LockException, SAXException, PermissionDeniedException, EXistException, IOException {
+        final IndexInfo indexInfo = collection.validateXMLResource(transaction, broker, name, xml);
+        collection.store(transaction, broker, indexInfo, xml);
+    }
+
+    private static void deleteCollection(final DBBroker broker, final Txn transaction, final XmldbURI collectionUri) throws PermissionDeniedException, IOException, TriggerException {
+        Collection collection = null;
+        try {
+            collection = broker.openCollection(collectionUri, Lock.LockMode.WRITE_LOCK);
+            if (collection != null) {
+                broker.removeCollection(transaction, collection);
+            }
+        } finally {
+            if (collection != null) {
+                collection.getLock().release(Lock.LockMode.WRITE_LOCK);
+            }
         }
     }
 
@@ -189,18 +451,13 @@ public class TransformTest {
         final BrokerPool pool = existEmbeddedServer.getBrokerPool();
         try(final DBBroker broker = pool.get(Optional.of(pool.getSecurityManager().getSystemSubject()));
             final Txn transaction = pool.getTransactionManager().beginTransaction()) {
-            Collection testCollection = null;
-            try {
-                testCollection = broker.openCollection(TEST_COLLECTION, Lock.LockMode.WRITE_LOCK);
 
-                if (testCollection != null) {
-                    broker.removeCollection(transaction, testCollection);
-                }
-            } finally {
-                if(testCollection != null) {
-                    testCollection.getLock().release(Lock.LockMode.WRITE_LOCK);
-                }
-            }
+            deleteCollection(broker, transaction, TEST_IDS_COLLECTION);
+            deleteCollection(broker, transaction, TEST_DOCUMENT_XSLT_COLLECTION);
+            deleteCollection(broker, transaction, TEST_SIMPLE_XML_COLLECTION);
+            deleteCollection(broker, transaction, TEST_SIMPLE_XML_WITH_COMMENT_COLLECTION);
+            deleteCollection(broker, transaction, TEST_SIMPLE_XML_WITH_TWO_COMMENTS_COLLECTION);
+            deleteCollection(broker, transaction, TEST_TWO_NODES_COLLECTION);
 
             transaction.commit();
         }

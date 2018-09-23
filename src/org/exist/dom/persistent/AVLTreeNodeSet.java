@@ -22,12 +22,13 @@
 package org.exist.dom.persistent;
 
 import org.exist.numbering.NodeId;
-import org.exist.xquery.XPathException;
 import org.exist.xquery.value.Item;
 import org.exist.xquery.value.SequenceIterator;
 
+import javax.annotation.Nullable;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.Iterator;
-import java.util.Stack;
 
 public class AVLTreeNodeSet extends AbstractNodeSet {
 
@@ -35,17 +36,14 @@ public class AVLTreeNodeSet extends AbstractNodeSet {
     private int size = 0;
     private int state = 0;
 
-    /* (non-Javadoc)
-      * @see org.exist.dom.persistent.NodeSet#iterate()
-      */
     @Override
-    public SequenceIterator iterate() throws XPathException {
-        return new InorderTraversal();
+    public SequenceIterator iterate() {
+        return new InorderTraversal(root);
     }
 
     @Override
-    public SequenceIterator unorderedIterator() throws XPathException {
-        return new InorderTraversal();
+    public SequenceIterator unorderedIterator() {
+        return new InorderTraversal(root);
     }
 
     @Override
@@ -60,9 +58,8 @@ public class AVLTreeNodeSet extends AbstractNodeSet {
         return size;
     }
 
-    //TODO : evaluate both semantics
     @Override
-    public int getItemCount() {
+    public long getItemCountLong() {
         return size;
     }
 
@@ -81,7 +78,7 @@ public class AVLTreeNodeSet extends AbstractNodeSet {
 
     @Override
     public final NodeProxy get(final NodeProxy p) {
-        final Node n = searchData(p);
+        final Node n = searchData(root, p);
         return n == null ? null : n.getData();
     }
 
@@ -171,9 +168,8 @@ public class AVLTreeNodeSet extends AbstractNodeSet {
     }
 
     private void balance(final Node node) {
-        Node currentNode, currentParent;
-        currentNode = node;
-        currentParent = node.parent;
+        Node currentNode = node;
+        Node currentParent = node.parent;
         while(currentNode != root) {
             final int h = currentParent.height;
             currentParent.setHeight();
@@ -304,7 +300,7 @@ public class AVLTreeNodeSet extends AbstractNodeSet {
         }
     }
 
-    public final Node searchData(final NodeProxy proxy) {
+    private static @Nullable Node searchData(@Nullable final Node root, final NodeProxy proxy) {
         if(root == null) {
             return null;
         }
@@ -353,7 +349,7 @@ public class AVLTreeNodeSet extends AbstractNodeSet {
 
     @Override
     public final boolean contains(final NodeProxy proxy) {
-        return searchData(proxy) != null;
+        return searchData(root, proxy) != null;
     }
 
     public void removeNode(final Node node) {
@@ -398,7 +394,7 @@ public class AVLTreeNodeSet extends AbstractNodeSet {
 
     @Override
     public NodeSetIterator iterator() {
-        return new InorderTraversal();
+        return new InorderTraversal(root);
     }
 
     @Override
@@ -420,11 +416,12 @@ public class AVLTreeNodeSet extends AbstractNodeSet {
         state = (state == Integer.MAX_VALUE ? 0 : state + 1);
     }
 
-    class InorderTraversal implements NodeSetIterator, SequenceIterator {
+    private static class InorderTraversal implements NodeSetIterator, SequenceIterator {
+        @Nullable private final Node root;
+        private final Deque<Node> nodes = new ArrayDeque<>();
 
-        private final Stack<Node> nodes = new Stack<>();
-
-        public InorderTraversal() {
+        public InorderTraversal(@Nullable final Node root) {
+            this.root = root;
             if(root != null) {
                 Node tempNode = root;
                 do {
@@ -436,10 +433,7 @@ public class AVLTreeNodeSet extends AbstractNodeSet {
 
         @Override
         public boolean hasNext() {
-            if(nodes.size() == 0) {
-                return false;
-            }
-            return true;
+            return !nodes.isEmpty();
         }
 
         @Override
@@ -447,8 +441,7 @@ public class AVLTreeNodeSet extends AbstractNodeSet {
             if(nodes.isEmpty()) {
                 return null;
             }
-            final Node currentNode = nodes.peek();
-            nodes.pop();
+            final Node currentNode = nodes.pop();
             if(currentNode.hasRightChild()) {
                 Node tempNode = currentNode.rightChild;
                 do {
@@ -461,16 +454,16 @@ public class AVLTreeNodeSet extends AbstractNodeSet {
 
         @Override
         public NodeProxy peekNode() {
-            if(nodes.isEmpty()) {
+            final Node currentNode = nodes.peek();
+            if (currentNode == null) {
                 return null;
             }
-            final Node currentNode = nodes.peek();
             return currentNode.getData();
         }
 
         @Override
         public void setPosition(final NodeProxy proxy) {
-            final Node n = searchData(proxy);
+            final Node n = searchData(root, proxy);
             nodes.clear();
             if(n != null) {
                 Node tempNode = n;
@@ -491,9 +484,8 @@ public class AVLTreeNodeSet extends AbstractNodeSet {
             if(nodes.isEmpty()) {
                 return null;
             }
-            final Node currentNode = nodes.peek();
-            nodes.pop();
-            if(currentNode.hasRightChild()) {
+            final Node currentNode = nodes.pop();
+            if (currentNode.hasRightChild()) {
                 Node tempNode = currentNode.rightChild;
                 do {
                     nodes.push(tempNode);
@@ -510,7 +502,6 @@ public class AVLTreeNodeSet extends AbstractNodeSet {
     }
 
     private static final class Node {
-
         private NodeProxy data;
         private Node parent;
         private Node leftChild;

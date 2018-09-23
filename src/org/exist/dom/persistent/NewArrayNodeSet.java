@@ -161,13 +161,13 @@ public class NewArrayNodeSet extends AbstractArrayNodeSet implements ExtNodeSet,
     }
 
     @Override
-    public SequenceIterator iterate() throws XPathException {
+    public SequenceIterator iterate() {
         sortInDocumentOrder();
         return new NewArrayIterator();
     }
 
     @Override
-    public SequenceIterator unorderedIterator() throws XPathException {
+    public SequenceIterator unorderedIterator() {
         if(!isSorted()) {
             sort();
         }
@@ -218,7 +218,8 @@ public class NewArrayNodeSet extends AbstractArrayNodeSet implements ExtNodeSet,
         }
         int low = documentOffsets[docIdx];
         int high = low + (documentLengths[docIdx] - 1);
-        int mid, cmp;
+        int mid;
+        int cmp;
         NodeProxy p;
         while(low <= high) {
             mid = (low + high) / 2;
@@ -593,11 +594,12 @@ public class NewArrayNodeSet extends AbstractArrayNodeSet implements ExtNodeSet,
             final int end = low + documentLengths[docIdx];
             int mid = low;
             int cmp;
-            NodeProxy p;
+            NodeProxy p = null;
             while(low <= high) {
                 mid = (low + high) / 2;
                 p = nodes[mid];
-                if(p.getNodeId().isDescendantOf(parentId)) {
+                if(p.getNodeId().isDescendantOf(parentId)
+                        || (parentId.equals(NodeId.DOCUMENT_NODE) && p.getNodeId().getTreeLevel() == 1)) {
                     break;    // found a child node, break out.
                 }
                 cmp = p.getNodeId().compareTo(parentId);
@@ -614,11 +616,17 @@ public class NewArrayNodeSet extends AbstractArrayNodeSet implements ExtNodeSet,
             while(mid < end && nodes[mid].getNodeId().isDescendantOf(parentId)) {
                 ++mid;
             }
+
+            if (mid == 0 && parentId.equals(NodeId.DOCUMENT_NODE)) {
+                mid = getLength();
+            }
+
             --mid;
+
             final NodeId refId = reference.getNodeId();
             for(int i = mid; i >= documentOffsets[docIdx]; i--) {
                 final NodeId currentId = nodes[i].getNodeId();
-                if(!currentId.isDescendantOf(parentId)) {
+                if(!(currentId.isDescendantOf(parentId) || (p != null && parentId.equals(NodeId.DOCUMENT_NODE) && p.getNodeId().getTreeLevel() == 1))) {
                     break;
                 }
                 if(currentId.getTreeLevel() == refId.getTreeLevel() && currentId.compareTo(refId) < 0) {
@@ -660,11 +668,12 @@ public class NewArrayNodeSet extends AbstractArrayNodeSet implements ExtNodeSet,
             final int end = low + documentLengths[docIdx];
             int mid = low;
             int cmp;
-            NodeProxy p;
+            NodeProxy p = null;
             while(low <= high) {
                 mid = (low + high) / 2;
                 p = nodes[mid];
-                if(p.getNodeId().isDescendantOf(parentId)) {
+                if(p.getNodeId().isDescendantOf(parentId)
+                        || (parentId.equals(NodeId.DOCUMENT_NODE) && p.getNodeId().getTreeLevel() == 1)) {
                     break;    // found a child node, break out.
                 }
                 cmp = p.getNodeId().compareTo(parentId);
@@ -684,8 +693,8 @@ public class NewArrayNodeSet extends AbstractArrayNodeSet implements ExtNodeSet,
             final NodeId refId = reference.getNodeId();
             for(int i = mid; i < end; i++) {
                 final NodeId currentId = nodes[i].getNodeId();
-                if(!currentId.isDescendantOf(parentId)) {
-                    break;
+                if(!(currentId.isDescendantOf(parentId) || (p != null && parentId.equals(NodeId.DOCUMENT_NODE) && p.getNodeId().getTreeLevel() == 1))) {
+                    continue;
                 }
                 if(currentId.getTreeLevel() == refId.getTreeLevel() && currentId.compareTo(refId) > 0) {
                     if(Expression.IGNORE_CONTEXT != contextId) {
@@ -1095,9 +1104,8 @@ public class NewArrayNodeSet extends AbstractArrayNodeSet implements ExtNodeSet,
         }
     }
 
-    private class NewArrayIterator implements NodeSetIterator, SequenceIterator {
-
-        int pos = 0;
+    protected class NewArrayIterator implements NodeSetIterator, SequenceIterator {
+        private int pos = 0;
 
         @Override
         public final boolean hasNext() {
@@ -1111,6 +1119,21 @@ public class NewArrayNodeSet extends AbstractArrayNodeSet implements ExtNodeSet,
                 throw new NoSuchElementException();
             }
             return nodes[pos++];
+        }
+
+        @Override
+        public long skippable() {
+            if (pos == -1) {
+                return 0;
+            }
+            return size - pos;
+        }
+
+        @Override
+        public long skip(final long n) {
+            final long skip = Math.min(n, pos == -1 ? 0 : size - pos);
+            pos += skip;
+            return skip;
         }
 
         @Override
