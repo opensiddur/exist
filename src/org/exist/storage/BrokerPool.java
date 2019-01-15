@@ -22,6 +22,7 @@ package org.exist.storage;
 import com.evolvedbinary.j8fu.fsm.AtomicFSM;
 import com.evolvedbinary.j8fu.fsm.FSM;
 import net.jcip.annotations.GuardedBy;
+import net.jcip.annotations.NotThreadSafe;
 import net.jcip.annotations.ThreadSafe;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -85,6 +86,8 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
 import static com.evolvedbinary.j8fu.fsm.TransitionTable.transitionTable;
+import static org.exist.util.ThreadUtils.nameInstanceThreadGroup;
+import static org.exist.util.ThreadUtils.newInstanceThread;
 
 /**
  * This class controls all available instances of the database.
@@ -131,6 +134,12 @@ public class BrokerPool extends BrokerPools implements BrokerPoolConstants, Data
     private final String instanceName;
 
     /**
+     * Root thread group for all threads related
+     * to this instance.
+     */
+    private final ThreadGroup instanceThreadGroup;
+
+    /**
      * State of the BrokerPool instance
      */
     private enum State {
@@ -162,6 +171,10 @@ public class BrokerPool extends BrokerPools implements BrokerPoolConstants, Data
                     .when(State.SHUTTING_DOWN).on(Event.FINISHED_SHUTDOWN).switchTo(State.SHUTDOWN)
             .build()
     );
+
+    public String getStatus() {
+        return status.getCurrentState().name();
+    }
 
     /**
      * The number of brokers for the database instance
@@ -353,7 +366,6 @@ public class BrokerPool extends BrokerPools implements BrokerPoolConstants, Data
 
     private StartupTriggersManager startupTriggersManager;
 
-
     /**
      * Creates and configures the database instance.
      *
@@ -373,6 +385,7 @@ public class BrokerPool extends BrokerPools implements BrokerPoolConstants, Data
 
         this.classLoader = Thread.currentThread().getContextClassLoader();
         this.instanceName = instanceName;
+        this.instanceThreadGroup = new ThreadGroup(nameInstanceThreadGroup(instanceName));
 
         this.maxShutdownWait = conf.getProperty(BrokerPool.PROPERTY_SHUTDOWN_DELAY, DEFAULT_MAX_SHUTDOWN_WAIT);
         LOG.info("database instance '" + instanceName + "' will wait  " + nf.format(this.maxShutdownWait) + " ms during shutdown");
@@ -518,7 +531,7 @@ public class BrokerPool extends BrokerPools implements BrokerPoolConstants, Data
             statusReporter = new StatusReporter(SIGNAL_STARTUP);
             statusObservers.forEach(statusReporter::addObserver);
 
-            final Thread statusThread = new Thread(statusReporter, "exist-broker-" + getId() + "-initialize-statusReporter");
+            final Thread statusThread = newInstanceThread(this, "startup-status-reporter", statusReporter);
             statusThread.start();
 
             // statusReporter may have to be terminated or the thread can/will hang.
@@ -782,6 +795,11 @@ public class BrokerPool extends BrokerPools implements BrokerPoolConstants, Data
     //TODO : rename getInstanceName
     public String getId() {
         return instanceName;
+    }
+
+    @Override
+    public ThreadGroup getThreadGroup() {
+        return instanceThreadGroup;
     }
 
     /**
@@ -1383,16 +1401,25 @@ public class BrokerPool extends BrokerPools implements BrokerPoolConstants, Data
     /**
      * Executes a waiting cache synchronization for the database instance.
      *
+     * NOTE: This method should not be called concurrently from multiple threads.
+     *
      * @param broker    A broker responsible for executing the job
      * @param syncEvent One of {@link org.exist.storage.sync.Sync}
      */
-    //TODO : rename as runSync ? executeSync ?
-    //TOUNDERSTAND (pb) : *not* synchronized, so... "executes" or, rather, "schedules" ? "executes" (WM)
-    //TOUNDERSTAND (pb) : why do we need a broker here ? Why not get and release one when we're done ?
-    // WM: the method will always be under control of the BrokerPool. It is guaranteed that no
-    // other brokers are active when it is called. That's why we don't need to synchronize here.
-    //TODO : make it protected ?
     public void sync(final DBBroker broker, final Sync syncEvent) {
+
+        /**
+         * Database Systems - The Complete Book (Second edition)
+         * § 17.4.1 The Undo/Redo Rules
+         *
+         * The constraints that an undo/redo logging system must follow are summarized by the following rule:
+         *     * UR1  Before modifying any database element X on disk because of changes
+         *            made by some transaction T, it is necessary that the update record
+         *            <T,X,v,w> appear on disk.
+         */
+        journalManager.get().flush(true, true);
+
+        // sync various DBX files
         broker.sync(syncEvent);
 
         //TODO : strange that it is set *after* the sunc method has been called.
@@ -1540,7 +1567,7 @@ public class BrokerPool extends BrokerPools implements BrokerPoolConstants, Data
                 statusObservers.forEach(statusReporter::addObserver);
 
                 synchronized (this) {
-                    final Thread statusThread = new Thread(statusReporter,  "exist-broker-" + getId() + "-shutdown-statusReporter");
+                    final Thread statusThread = newInstanceThread(this, "shutdown-status-reporter", statusReporter);
                     statusThread.start();
 
                     // release transaction log to allow remaining brokers to complete
@@ -1671,6 +1698,8 @@ public class BrokerPool extends BrokerPools implements BrokerPoolConstants, Data
 
                 statusReporter.terminate();
                 statusReporter = null;
+
+//                instanceThreadGroup.destroy();
             }
         } finally {
             status.process(Event.FINISHED_SHUTDOWN);

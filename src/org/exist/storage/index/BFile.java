@@ -84,8 +84,6 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 public class BFile extends BTree {
 
     protected final static Logger LOGSTATS = LogManager.getLogger( NativeBroker.EXIST_STATISTICS_LOGGER );
-
-    public final static short FILE_FORMAT_VERSION_ID = 13;
     
     public final static long UNKNOWN_ADDRESS = -1;
 
@@ -143,9 +141,9 @@ public class BFile extends BTree {
     protected final int maxValueSize;
 
 
-    public BFile(final BrokerPool pool, final byte fileId, final boolean recoveryEnabled, final Path file, final DefaultCacheManager cacheManager,
+    public BFile(final BrokerPool pool, final byte fileId, final short fileVersion, final boolean recoveryEnabled, final Path file, final DefaultCacheManager cacheManager,
             final double cacheGrowth, final double thresholdData) throws DBException {
-        super(pool, fileId, recoveryEnabled, cacheManager, file);
+        super(pool, fileId, fileVersion, recoveryEnabled, cacheManager, file);
         fileHeader = (BFileHeader) getFileHeader();
         dataCache = new LRUCache<>(FileUtils.fileName(file), 64, cacheGrowth, thresholdData, CacheManager.DATA_CACHE);
         cacheManager.registerCache(dataCache);
@@ -154,21 +152,13 @@ public class BFile extends BTree {
         maxValueSize = fileHeader.getWorkSize() / 2;
         
         if(exists()) {
-            open();
+            open(fileVersion);
         } else {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Creating data file: " + FileUtils.fileName(getFile()));
             }
             create();
         }
-    }
-
-    /**
-     * @return file version
-     */
-    @Override
-    public short getFileVersion() {
-        return FILE_FORMAT_VERSION_ID;
     }
 
     /**
@@ -602,10 +592,6 @@ public class BFile extends BTree {
         return cb.getValues();
     }
 
-    public boolean open() throws DBException {
-        return super.open(FILE_FORMAT_VERSION_ID);
-    }
-
     /**
      * Put data under given key.
      *
@@ -1004,11 +990,11 @@ public class BFile extends BTree {
     }
 
     private boolean isUptodate(final Page page, final Loggable loggable) {
-        return page.getPageHeader().getLsn() >= loggable.getLsn();
+        return page.getPageHeader().getLsn().compareTo(loggable.getLsn()) >= 0;
     }
 
     private boolean requiresRedo(final Loggable loggable, final DataPage page) {
-        return loggable.getLsn() > page.getPageHeader().getLsn();
+        return loggable.getLsn().compareTo(page.getPageHeader().getLsn()) > 0;
     }
 
     protected void redoStoreValue(final StoreValueLoggable loggable) {
@@ -1032,7 +1018,7 @@ public class BFile extends BTree {
     }
 
     protected void redoCreatePage(final CreatePageLoggable loggable) {
-        createPageHelper(loggable, loggable.newPage);
+        createPageHelper(loggable, loggable.newPage, false);
     }
 
     protected void undoCreatePage(final CreatePageLoggable loggable) {
@@ -1062,7 +1048,7 @@ public class BFile extends BTree {
                 }
                 wp = new SinglePage(page, data, true);
             }
-            if (wp.ph.getLsn() != Page.NO_PAGE && requiresRedo(loggable, wp)) {
+            if (!wp.ph.getLsn().equals(Lsn.LSN_INVALID) && requiresRedo(loggable, wp)) {
                 removeValueHelper(loggable, loggable.tid, wp);
             }
         } catch (final IOException e) {
@@ -1095,7 +1081,7 @@ public class BFile extends BTree {
                 }
                 wp = new SinglePage(page, data, false);
             }
-            if (wp.getPageHeader().getLsn() == Lsn.LSN_INVALID || requiresRedo(loggable, wp)) {
+            if (wp.getPageHeader().getLsn().equals(Lsn.LSN_INVALID) || requiresRedo(loggable, wp)) {
                 fileHeader.removeFreeSpace(fileHeader.getFreeSpace(wp.getPageNum()));
                 dataCache.remove(wp);
                 wp.delete();
@@ -1106,7 +1092,7 @@ public class BFile extends BTree {
     }
 
     protected void undoRemovePage(final RemoveEmptyPageLoggable loggable) {
-        createPageHelper(loggable, loggable.page);
+        createPageHelper(loggable, loggable.page, false);
     }
 
     protected void redoCreateOverflow(final OverflowCreateLoggable loggable) {
@@ -1115,8 +1101,8 @@ public class BFile extends BTree {
             if (firstPage == null) {
                 final Page page = getPage(loggable.pageNum);
                 byte[] data = page.read();
-                if (page.getPageHeader().getLsn() == Lsn.LSN_INVALID || requiresRedo(loggable, page)) {
-                    reuseDeleted(page);
+                if (page.getPageHeader().getLsn().equals(Lsn.LSN_INVALID) || requiresRedo(loggable, page)) {
+                    dropFreePageList();
                     final BFilePageHeader ph = (BFilePageHeader) page.getPageHeader();
                     ph.setStatus(MULTI_PAGE);
                     ph.setNextInChain(0L);
@@ -1130,7 +1116,7 @@ public class BFile extends BTree {
                     firstPage = new SinglePage(page, data, false);
                 }
             }
-            if (firstPage.getPageHeader().getLsn() != Page.NO_PAGE && requiresRedo(loggable, firstPage)) {
+            if (!firstPage.getPageHeader().getLsn().equals(Lsn.LSN_INVALID) && requiresRedo(loggable, firstPage)) {
                 firstPage.getPageHeader().setLsn(loggable.getLsn());
                 firstPage.setDirty(true);
             }
@@ -1151,7 +1137,7 @@ public class BFile extends BTree {
     }
 
     protected void redoCreateOverflowPage(final OverflowCreatePageLoggable loggable) {
-        createPageHelper(loggable, loggable.newPage);
+        createPageHelper(loggable, loggable.newPage, false);
         if (loggable.prevPage != Page.NO_PAGE) {
             try {
                 final SinglePage page = getSinglePageForRedo(null, loggable.prevPage);
@@ -1298,7 +1284,7 @@ public class BFile extends BTree {
     }
 
     protected void undoRemoveOverflow(final OverflowRemoveLoggable loggable) {
-        final DataPage page = createPageHelper(loggable, loggable.pageNum);
+        final DataPage page = createPageHelper(loggable, loggable.pageNum, false);
         final BFilePageHeader ph = page.getPageHeader();
         ph.setStatus(loggable.status);
         ph.setDataLength(loggable.length);
@@ -1379,14 +1365,18 @@ public class BFile extends BTree {
         }
     }
 
-    private DataPage createPageHelper(final Loggable loggable, final long newPage) {
+    private DataPage createPageHelper(final Loggable loggable, final long newPage, final boolean reuseDeleted) {
         try {
             DataPage dp = (DataPage) dataCache.get(newPage);
             if (dp == null) {
                 final Page page = getPage(newPage);
                 byte[] data = page.read();
-                if (page.getPageHeader().getLsn() == Lsn.LSN_INVALID || (loggable != null && requiresRedo(loggable, page)) ) {
-                    reuseDeleted(page);
+                if (page.getPageHeader().getLsn().equals(Lsn.LSN_INVALID) || (loggable != null && requiresRedo(loggable, page)) ) {
+                    if (reuseDeleted) {
+                        reuseDeleted(page);
+                    } else {
+                        dropFreePageList();
+                    }
                     final BFilePageHeader ph = (BFilePageHeader) page.getPageHeader();
                     ph.setStatus(RECORD);
                     ph.setDataLength(0);
@@ -1398,7 +1388,7 @@ public class BFile extends BTree {
                     dp = new SinglePage(page, data, true);
                 }
             }
-            if (loggable != null && loggable.getLsn() > dp.getPageHeader().getLsn()) {
+            if (loggable != null && loggable.getLsn().compareTo(dp.getPageHeader().getLsn()) > 0) {
                 dp.getPageHeader().setLsn(loggable.getLsn());
             }
             dp.setDirty(true);
@@ -1636,7 +1626,7 @@ public class BFile extends BTree {
             if (isDirty()) {
                 try {
                     write();
-                    if (isRecoveryEnabled() && syncJournal && logManager.get().lastWrittenLsn() < getPageHeader().getLsn()) {
+                    if (isRecoveryEnabled() && syncJournal && logManager.get().lastWrittenLsn().compareTo(getPageHeader().getLsn()) < 0) {
                         logManager.get().flush(true, false);
                     }
                     return true;

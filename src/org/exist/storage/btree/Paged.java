@@ -128,22 +128,22 @@ public abstract class Paged implements AutoCloseable {
 
     protected static int PAGE_SIZE = 4096;
 
-    private RandomAccessFile raf;
-    private Path file;
+    protected final short fileVersion;
     private final FileHeader fileHeader;
-    private boolean readOnly = false;
-    private boolean fileIsNew = false;
-
     private final byte[] tempPageData;
     private final byte[] tempHeaderData;
+
+    private RandomAccessFile raf;
+    private Path file;
+    private boolean readOnly = false;
+    private boolean fileIsNew = false;
 	
-    public Paged(final BrokerPool pool) {
+    public Paged(final BrokerPool pool, final short fileVersion) {
+        this.fileVersion = fileVersion;
         this.fileHeader = createFileHeader(pool.getPageSize());
         this.tempPageData = new byte[fileHeader.pageSize];
         this.tempHeaderData = new byte[fileHeader.pageHeaderSize];
     }
-
-    public abstract short getFileVersion();
 
     public final static void setPageSize(final int pageSize) {
         PAGE_SIZE = pageSize;
@@ -453,17 +453,47 @@ public abstract class Paged implements AutoCloseable {
         unlinkPages(getPage(pageNum));
     }
 
+    /**
+     * Clears the {@link FileHeader#firstFreePage} and
+     *  {@link FileHeader#lastFreePage}.
+     *
+     * This is needed in recovery, as the free page list
+     * may have become corrupted.
+     *
+     * Unfortunately this means we loose some space
+     * that we will never recover, but it does mean
+     * we are more likely to correctly recover.
+     */
+    protected void dropFreePageList() throws IOException {
+        boolean updated = false;
+        if (fileHeader.getFirstFreePage() != Page.NO_PAGE) {
+            fileHeader.setFirstFreePage(Page.NO_PAGE);
+            updated = true;
+        }
+        if (fileHeader.getLastFreePage() != Page.NO_PAGE) {
+            fileHeader.setLastFreePage(Page.NO_PAGE);
+            updated = true;
+        }
+
+        if (updated) {
+            fileHeader.write();
+        }
+    }
+
     protected void reuseDeleted(final Page page) throws IOException {
         if (page != null && fileHeader.getFirstFreePage() != Page.NO_PAGE) {
+
             long firstFreePageNum = fileHeader.getFirstFreePage();
             if (firstFreePageNum == page.pageNum) {
                 fileHeader.setFirstFreePage(page.header.getNextPage());
                 fileHeader.write();
                 return;
             }
+
             Page firstFreePage = getPage(firstFreePageNum);
             firstFreePage.read();
             firstFreePageNum = firstFreePage.header.getNextPage();
+
             while (firstFreePageNum != Page.NO_PAGE) {
                 if (firstFreePageNum == page.pageNum) {
                     firstFreePage.header.setNextPage(page.header.getNextPage());
@@ -521,7 +551,7 @@ public abstract class Paged implements AutoCloseable {
      * @author Wolfgang Meier <meier@ifs.tu-darmstadt.de>
      */
     public abstract class FileHeader {
-        private short versionId;
+        private short version;
 
         private boolean dirty = false;
         private long firstFreePage = Page.NO_PAGE;
@@ -543,7 +573,7 @@ public abstract class Paged implements AutoCloseable {
             this.pageCount = pageCount;
             this.totalCount = pageCount;
             this.headerSize = (short) pageSize;
-            this.versionId = getFileVersion();
+            this.version = fileVersion;
             this.buf = new byte[headerSize];
             calculateWorkSize();
         }
@@ -651,7 +681,7 @@ public abstract class Paged implements AutoCloseable {
         }
         
         public final short getVersion() {
-            return versionId;
+            return version;
         }
         
         /**
@@ -680,7 +710,7 @@ public abstract class Paged implements AutoCloseable {
         }
 
         public int read(final byte[] buf) throws IOException {
-            versionId = ByteConversion.byteToShort(buf, OFFSET_VERSION_ID);
+            version = ByteConversion.byteToShort(buf, OFFSET_VERSION_ID);
             headerSize = ByteConversion.byteToShort(buf, OFFSET_HEADER_SIZE);
             pageSize = ByteConversion.byteToInt(buf, OFFSET_PAGE_SIZE);
             pageCount = ByteConversion.byteToLong(buf, OFFSET_PAGE_COUNT);
@@ -694,7 +724,7 @@ public abstract class Paged implements AutoCloseable {
         }
 
         public int write(final byte[] buf) throws IOException {
-            ByteConversion.shortToByte(versionId, buf, OFFSET_VERSION_ID);
+            ByteConversion.shortToByte(version, buf, OFFSET_VERSION_ID);
             ByteConversion.shortToByte(headerSize, buf, OFFSET_HEADER_SIZE);
             ByteConversion.intToByte(pageSize, buf, OFFSET_PAGE_SIZE);
             ByteConversion.longToByte(pageCount, buf, OFFSET_PAGE_COUNT);
@@ -984,7 +1014,7 @@ public abstract class Paged implements AutoCloseable {
         public static final int LENGTH_PAGE_STATUS = 1; //sizeof byte
         public static final int LENGTH_PAGE_DATA_LENGTH = 4; //sizeof int
         public static final int LENGTH_PAGE_NEXT_PAGE = 8; //sizeof long
-        public static final int LENGTH_PAGE_LSN = 8; //sizeof long
+        public static final int LENGTH_PAGE_LSN = Lsn.RAW_LENGTH;
 
         private int dataLen = 0;
         private boolean dirty = false;
@@ -992,7 +1022,7 @@ public abstract class Paged implements AutoCloseable {
 
         private byte status = UNUSED;
 
-        private long lsn = Lsn.LSN_INVALID;
+        private Lsn lsn = Lsn.LSN_INVALID;
         
         public PageHeader() {
         }
@@ -1051,11 +1081,11 @@ public abstract class Paged implements AutoCloseable {
          * 
          * @return log sequence number of the last operation that modified this page.
          */
-        public final long getLsn() {
+        public final Lsn getLsn() {
             return lsn;
         }
 
-        public final void setLsn(final long lsn) {
+        public final void setLsn(final Lsn lsn) {
             this.lsn = lsn;
         }
 
@@ -1066,7 +1096,7 @@ public abstract class Paged implements AutoCloseable {
             offset += LENGTH_PAGE_DATA_LENGTH;
             nextPage = ByteConversion.byteToLong(data, offset);
             offset += LENGTH_PAGE_NEXT_PAGE;
-            lsn = ByteConversion.byteToLong(data, offset);
+            lsn = Lsn.read(data, offset);
             offset += LENGTH_PAGE_LSN;
         	return offset;
         }
@@ -1078,7 +1108,7 @@ public abstract class Paged implements AutoCloseable {
             offset += LENGTH_PAGE_DATA_LENGTH;
             ByteConversion.longToByte(nextPage, data, offset);
             offset += LENGTH_PAGE_NEXT_PAGE;
-            ByteConversion.longToByte(lsn, data, offset);
+            lsn.write(data, offset);
             offset += LENGTH_PAGE_LSN;
             dirty = false;
             return offset;

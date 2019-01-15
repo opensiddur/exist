@@ -37,7 +37,6 @@ import org.junit.runners.Suite;
         CopyCollectionRecoveryTest.class,
         MoveCollectionRecoveryTest.class,
         MoveOverwriteCollectionTest.class,
-        RecoverBinaryTest.class,
         RecoverBinaryTest2.class,
         RecoveryTest.class,
         AppendTest.class,
@@ -52,7 +51,8 @@ import org.junit.runners.Suite;
         LargeValuesTest.class,
         StoreBinaryTest.class,
         ModificationTimeTest.class,
-        StartupTriggerTest.class
+        StartupTriggerTest.class,
+        ConcurrentBrokerPoolTest.class
 })
 public class AllStorageTests {
 }

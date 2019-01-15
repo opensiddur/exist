@@ -24,9 +24,13 @@ import org.apache.logging.log4j.Logger;
 
 import com.evolvedbinary.j8fu.Either;
 import com.evolvedbinary.j8fu.function.FunctionE;
+import org.exist.util.crypto.digest.DigestOutputStream;
+import org.exist.util.crypto.digest.StreamableDigest;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
@@ -34,6 +38,10 @@ import java.util.*;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+
+import static java.nio.file.StandardOpenOption.READ;
+import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
+import static java.nio.file.StandardOpenOption.WRITE;
 
 /**
  * @author Adam Retter <adam.retter@googlemail.com>
@@ -73,6 +81,31 @@ public class FileUtils {
                 .orElse(Collections.EMPTY_LIST);
     }
 
+    /**
+     * Copies a path within the filesystem
+     *
+     * If the path is a directory its contents
+     * will be recursively copied.
+     *
+     * Note that copying of a directory is not an atomic-operation
+     * and so if an error occurs during copying, some of the directories
+     * descendants may have already been copied.
+     *
+     * @param source the source file or directory
+     * @param destination the destination file or directory
+     *
+     * @throws IOException if an error occurs whilst copying a file or directory
+     */
+    public static void copy(final Path source, final Path destination) throws IOException {
+        if (!Files.isDirectory(source)) {
+            Files.copy(source, destination);
+        } else {
+            if (Files.exists(destination) && !Files.isDirectory(destination)) {
+                throw new IOException("Cannot copy a directory to a file");
+            }
+            Files.walkFileTree(source, copyDirVisitor(source, destination));
+        }
+    }
 
     /**
      * Deletes a path from the filesystem
@@ -84,6 +117,8 @@ public class FileUtils {
      * Note that removal of a directory is not an atomic-operation
      * and so if an error occurs during removal, some of the directories
      * descendants may have already been removed
+     *
+     * @param path the path to delete.
      *
      * @throws IOException if an error occurs whilst removing a file or directory
      */
@@ -123,6 +158,42 @@ public class FileUtils {
         } catch (final IOException ioe) {
             LOG.error("Unable to delete: " + path.toAbsolutePath().toString(), ioe);
             return false;
+        }
+    }
+
+    private final static SimpleFileVisitor<Path> copyDirVisitor(final Path source, final Path destination) throws IOException {
+        if (!Files.isDirectory(source)) {
+            throw new IOException("source must be a directory");
+        }
+        if (!Files.isDirectory(destination)) {
+            throw new IOException("destination must be a directory");
+        }
+        return new CopyDirVisitor(source, destination);
+    }
+
+    private static class CopyDirVisitor extends SimpleFileVisitor<Path> {
+        private final Path source;
+        private final Path destination;
+
+        public CopyDirVisitor(final Path source, final Path destination) {
+            this.source = source;
+            this.destination = destination;
+        }
+
+        @Override
+        public FileVisitResult preVisitDirectory(final Path dir, final BasicFileAttributes attrs) throws IOException {
+            final Path relSourceDir = source.relativize(dir);
+            final Path targetDir = destination.resolve(relSourceDir);
+            Files.createDirectories(targetDir);
+            return FileVisitResult.CONTINUE;
+        }
+
+        @Override
+        public FileVisitResult visitFile(final Path file, final BasicFileAttributes attrs) throws IOException {
+            final Path relSourceFile = source.relativize(file);
+            final Path targetFile = destination.resolve(relSourceFile);
+            Files.copy(file, targetFile);
+            return FileVisitResult.CONTINUE;
         }
     }
 
@@ -335,4 +406,77 @@ public class FileUtils {
         }
     }
 
+    /**
+     * Copy a file whilst generating a digest of the bytes that are being written.
+     *
+     * Destination file will be overwritten.
+     *
+     * @param src the source file.
+     * @param dst the destination file
+     * @param streamableDigest the digest
+     */
+    public static void copyWithDigest(final Path src, final Path dst, final StreamableDigest streamableDigest) throws IOException {
+        copyWithDigest(src, dst, streamableDigest, WRITE, TRUNCATE_EXISTING);
+    }
+
+    /**
+     * Copy a file whilst generating a digest of the bytes that are being written.
+     *
+     * @param src the source file.
+     * @param dst the destination file
+     * @param streamableDigest the digest
+     */
+    public static void copyWithDigest(final Path src, final Path dst, final StreamableDigest streamableDigest, final OpenOption... dstOptions) throws IOException {
+        try (final InputStream is = Files.newInputStream(src, READ)) {
+            copyWithDigest(is, dst, streamableDigest);
+        }
+    }
+
+    /**
+     * Copy data to a file whilst generating a digest of the bytes that are being written.
+     *
+     * Destination file will be overwritten.
+     *
+     * @param is the source data.
+     * @param dst the destination file
+     * @param streamableDigest the digest
+     */
+    public static void copyWithDigest(final InputStream is, final Path dst, final StreamableDigest streamableDigest) throws IOException {
+        copyWithDigest(is, dst, streamableDigest, WRITE, TRUNCATE_EXISTING);
+    }
+
+    /**
+     * Copy data to a file whilst generating a digest of the bytes that are being written.
+     *
+     * @param is the source data.
+     * @param dst the destination file
+     * @param streamableDigest the digest
+     */
+    public static void copyWithDigest(final InputStream is, final Path dst, final StreamableDigest streamableDigest, final OpenOption... dstOptions) throws IOException {
+        try (final OutputStream os = new DigestOutputStream(Files.newOutputStream(dst, dstOptions), streamableDigest)) {
+
+            final byte[] buf = new byte[8192];
+            int read;
+            while ((read = is.read(buf)) != -1) {
+                os.write(buf, 0, read);
+            }
+        }
+    }
+
+    /**
+     * Calculates the digest for a file.
+     *
+     * @param path the file to calculate the digest for.
+     * @param streamableDigest the digest.
+     */
+    public static void digest(final Path path, final StreamableDigest streamableDigest) throws IOException {
+        try (final InputStream is = Files.newInputStream(path, READ)) {
+            final byte[] buf = new byte[8192];
+
+            int read;
+            while ((read = is.read(buf)) != -1) {
+                streamableDigest.update(buf, 0, read);
+            }
+        }
+    }
 }

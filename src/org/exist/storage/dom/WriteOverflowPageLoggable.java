@@ -47,7 +47,7 @@ public class WriteOverflowPageLoggable extends AbstractLoggable {
 
     public WriteOverflowPageLoggable(final DBBroker broker, final long transactId) {
         super(DOMFile.LOG_WRITE_OVERFLOW, transactId);
-        this.domDb = ((NativeBroker) broker).getDOMFile();
+        this.domDb = broker == null ? null : ((NativeBroker) broker).getDOMFile();
     }
 
     @Override
@@ -86,5 +86,13 @@ public class WriteOverflowPageLoggable extends AbstractLoggable {
     @Override
     public String dump() {
         return super.dump() + " - writing overflow page " + pageNum + "; next: " + nextPage;
+    }
+
+    public long getPageNum() {
+        return pageNum;
+    }
+
+    public Value getValue() {
+        return value;
     }
 }

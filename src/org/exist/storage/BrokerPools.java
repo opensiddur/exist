@@ -32,6 +32,8 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+import static org.exist.util.ThreadUtils.newGlobalThread;
+
 /**
  * This abstract class really just contains the static
  * methods for {@link BrokerPool} to help us organise the
@@ -58,16 +60,13 @@ abstract class BrokerPools {
     // register a shutdown hook
     static {
         try {
-            Runtime.getRuntime().addShutdownHook(new Thread("BrokerPools-ShutdownHook") {
+            Runtime.getRuntime().addShutdownHook(newGlobalThread("BrokerPools.ShutdownHook", () -> {
                 /**
                  * Make sure that all instances are cleanly shut down.
                  */
-                @Override
-                public void run() {
-                    LOG.info("Executing shutdown thread");
-                    BrokerPools.stopAll(true);
-                }
-            });
+                LOG.info("Executing shutdown thread");
+                BrokerPools.stopAll(true);
+            }));
             LOG.debug("Shutdown hook registered");
         } catch(final IllegalArgumentException e) {
             LOG.warn("Shutdown hook already registered");
@@ -172,7 +171,10 @@ abstract class BrokerPools {
                 return;
             }
 
-            LOG.debug("Configuring database instance '" + instanceName + "'...");
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Configuring database instance '" + instanceName + "'...");
+            }
+
             try {
                 //Create the instance
                 final BrokerPool instance = new BrokerPool(instanceName, minBrokers, maxBrokers, config, statusObserver);

@@ -21,6 +21,7 @@
  */
 package org.exist.util;
 
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import javax.xml.parsers.SAXParserFactory;
 
@@ -28,32 +29,33 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 /**
- *  Helper class for creating an instance of javax.xml.parsers.SAXParserFactory
- * 
+ * Helper class for creating an instance of javax.xml.parsers.SAXParserFactory
+ *
  * @author dizzzz@exist-db.org
  */
 public class ExistSAXParserFactory {
 
     private final static Logger LOG = LogManager.getLogger(ExistSAXParserFactory.class);
 
-    public final static String ORG_EXIST_SAXPARSERFACTORY="org.exist.SAXParserFactory";
+    public final static String ORG_EXIST_SAXPARSERFACTORY = "org.exist.SAXParserFactory";
 
     /**
-     *  Get SAXParserFactory instance specified by factory class name.
+     * Get SAXParserFactory instance specified by factory class name.
      *
      * @param className Full class name of factory
-     *
      * @return A Sax parser factory or NULL when not available.
      */
-    public static SAXParserFactory getSAXParserFactory(String className) {
+    public static SAXParserFactory getSAXParserFactory(final String className) {
 
         Class<?> clazz = null;
         try {
             clazz = Class.forName(className);
 
-        } catch (final Exception ex) { // ClassNotFoundException
+        } catch (final ClassNotFoundException ex) {
             // quick escape
-            LOG.debug(className + ": " + ex.getMessage(), ex);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(className + ": " + ex.getMessage(), ex);
+            }
             return null;
         }
 
@@ -61,9 +63,11 @@ public class ExistSAXParserFactory {
         Method method = null;
         try {
             method = clazz.getMethod("newInstance", (Class[]) null);
-        } catch (final Exception ex) { // SecurityException and NoSuchMethodException
+        } catch (final SecurityException | NoSuchMethodException ex) {
             // quick escape
-            LOG.debug("Method " + className + ".newInstance not found.", ex);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Method " + className + ".newInstance not found.", ex);
+            }
             return null;
         }
 
@@ -72,23 +76,26 @@ public class ExistSAXParserFactory {
         try {
             result = method.invoke(null, (Object[]) null);
 
-        } catch (final Exception ex) { //IllegalAccessException and InvocationTargetException
+        } catch (final IllegalAccessException | InvocationTargetException ex) {
             // quick escape
-            LOG.debug("Could not invoke method " + className + ".newInstance.", ex);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Could not invoke method " + className + ".newInstance.", ex);
+            }
             return null;
         }
 
         if (!(result instanceof SAXParserFactory)) {
-            LOG.debug("Could not create instance of SAXParserFactory: " + result.toString());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Could not create instance of SAXParserFactory: " + result.toString());
+            }
             return null;
         }
 
         return (SAXParserFactory) result;
-
     }
 
     /**
-     *  Get instance of a SAXParserFactory. Return factory specified by
+     * Get instance of a SAXParserFactory. Return factory specified by
      * system property org.exist.SAXParserFactory (if available) otherwise
      * return system default.
      *
@@ -109,7 +116,9 @@ public class ExistSAXParserFactory {
         // If no factory could be retrieved, create system default property.
         if (factory == null) {
             factory = SAXParserFactory.newInstance();
-            LOG.debug(String.format("Using default SAXParserFactory '%s'", factory.getClass().getCanonicalName()));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug(String.format("Using default SAXParserFactory '%s'", factory.getClass().getCanonicalName()));
+            }
         }
 
         return factory;
