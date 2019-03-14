@@ -1,17 +1,28 @@
 language: java
-sudo: false
+
+dist: xenial
+
 matrix:
   include:
     - jdk: openjdk8
-    - jdk: oraclejdk8
     - jdk: openjdk9
     - jdk: openjdk10
-    - jdk: openjdk11
     - jdk: oraclejdk11
-    
+
     - os: osx
-      osx_image: xcode9.2
+      osx_image: xcode9.3
       env: JAVA_HOME=$(/usr/libexec/java_home)
+
 script: ./build.sh -Dexist.autodeploy=off -Dtest.haltonerror=true -Dtest.haltonfailure=true clean clean-all all test
+
+cache:
+  directories:
+  - $HOME/.ivy2
+  - $HOME/.m2
+
+after_failure:
+   - tar -cjf junit-data-4.x.x.tar.bz2 exist-core/target/junit-reports/data
+   - curl -v -u $CHUNK_USER:$CHUNK_PW -sT junit-data-4.x.x.tar.bz2 chunk.io
+
 notifications:
-  hipchat: ec8fcfa661addc56a361a8ef536320@integrations
+  slack: exist-db:IXzUdqA0n11cnxaDz43ZQgdX
