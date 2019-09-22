@@ -531,6 +531,11 @@ public class LDAPRealm extends AbstractRealm {
         }
     }
 
+    @Override
+    public boolean hasAccount(final String name) {
+        return getAccount(name) != null;
+    }
+
     /**
      * The binary data is in form:
      * byte[0] - revision level
@@ -652,6 +657,11 @@ public class LDAPRealm extends AbstractRealm {
                 return null;
             }
         }
+    }
+
+    @Override
+    public boolean hasGroup(final String name) {
+        return getGroup((Subject)null, getSecurityManager().getDatabase().getActiveBroker(), name) != null;
     }
 
     private String addDomainPostfix(final String principalName) {
@@ -788,7 +798,7 @@ public class LDAPRealm extends AbstractRealm {
         return null;
     }
 
-    private SearchResult findGroupByGroupName(final DirContext ctx, final String groupName) throws NamingException {
+    private @Nullable SearchResult findGroupByGroupName(final DirContext ctx, final String groupName) throws NamingException {
 
         if (!checkGroupRestrictionList(groupName)) {
             return null;
@@ -1237,6 +1247,11 @@ public class LDAPRealm extends AbstractRealm {
 
             //find the dn of the group
             SearchResult searchResult = findGroupByGroupName(ctx, removeDomainPostfix(name));
+            if (searchResult == null) {
+                // no such group
+                return groupMembers;
+            }
+
             final LDAPSearchContext search = ensureContextFactory().getSearch();
             final String dnGroup = (String) searchResult.getAttributes().get(search.getSearchGroup().getSearchAttribute(LDAPSearchAttributeKey.DN)).get();
 

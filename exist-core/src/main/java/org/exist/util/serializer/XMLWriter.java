@@ -28,7 +28,7 @@ import javax.xml.transform.TransformerException;
 import com.evolvedbinary.j8fu.lazy.LazyVal;
 import org.exist.dom.QName;
 import org.exist.storage.serializers.EXistOutputKeys;
-import org.exist.util.XMLString;
+import org.exist.util.CharSlice;
 import org.exist.util.serializer.encodings.CharacterSet;
 
 /**
@@ -247,12 +247,12 @@ public class XMLWriter {
         try {
             if (tagIsOpen) {
                 closeStartTag(true);
-                elementName.pop();
             } else {
                 writer.write("</");
                 writer.write(qname);
                 writer.write('>');
             }
+            elementName.pop();
         } catch(final IOException ioe) {
             throw new TransformerException(ioe.getMessage(), ioe);
         }
@@ -262,7 +262,6 @@ public class XMLWriter {
         try {
             if(tagIsOpen) {
                 closeStartTag(true);
-                elementName.pop();
             } else {
                 writer.write("</");
                 if(qname.getPrefix() != null && qname.getPrefix().length() > 0) {
@@ -272,6 +271,7 @@ public class XMLWriter {
                 writer.write(qname.getLocalPart());
                 writer.write('>');
             }
+            elementName.pop();
         } catch(final IOException ioe) {
             throw new TransformerException(ioe.getMessage(), ioe);
         }
@@ -377,12 +377,7 @@ public class XMLWriter {
                 throw new TransformerException(e.getMessage(), e);
             }
         } else {
-            final XMLString s = new XMLString(ch, start, len);
-            try {
-                characters(s);
-            } finally {
-                s.release();
-            }
+            characters(new CharSlice(ch, start, len));
         }
     }
 

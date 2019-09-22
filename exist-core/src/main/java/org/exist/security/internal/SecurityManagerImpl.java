@@ -19,6 +19,8 @@
  */
 package org.exist.security.internal;
 
+import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import org.exist.scheduler.JobDescription;
 import org.exist.security.AbstractRealm;
 import java.util.ArrayList;
@@ -64,7 +66,6 @@ import org.exist.storage.BrokerPoolServiceException;
 import org.exist.storage.DBBroker;
 import org.exist.storage.txn.TransactionManager;
 import org.exist.storage.txn.Txn;
-import org.exist.util.hashtable.Int2ObjectHashMap;
 import org.exist.xmldb.XmldbURI;
 import org.quartz.JobDataMap;
 import org.quartz.JobExecutionContext;
@@ -577,8 +578,8 @@ public class SecurityManagerImpl implements SecurityManager, BrokerPoolService {
         }
         
         final AbstractRealm registeredRealm = (AbstractRealm)findRealmForRealmId(group.getRealmId());
-        if (registeredRealm.hasGroup(group.getName())) {
-            throw new ConfigurationException("The group '" + group.getName() + "' at realm '" + group.getRealmId() + "' already exist.");
+        if (registeredRealm.hasGroupLocal(group.getName())) {
+            throw new ConfigurationException("The group '" + group.getName() + "' at realm '" + group.getRealmId() + "' already exists.");
         }
         
         final GroupImpl newGroup = new GroupImpl(broker, registeredRealm, id, group.getName(), group.getManagers());
@@ -628,16 +629,18 @@ public class SecurityManagerImpl implements SecurityManager, BrokerPoolService {
         }
 
         final AbstractRealm registeredRealm = (AbstractRealm) findRealmForRealmId(account.getRealmId());
-        final AccountImpl newAccount = new AccountImpl(broker, registeredRealm, id, account);
+        if (registeredRealm.hasAccountLocal(account.getName())) {
+            throw new ConfigurationException("The account '" + account.getName() + "' at realm '" + account.getRealmId() + "' already exists.");
+        }
 
+        final AccountImpl newAccount = new AccountImpl(broker, registeredRealm, id, account);
         final Lock lock = accountLocks.getWriteLock(newAccount);
         lock.lock();
         try {
             usersById.modify(principalDb -> principalDb.put(id, newAccount));
-            
+
             registeredRealm.registerAccount(newAccount);
 
-            //XXX: one transaction?
             save(broker);
             newAccount.save(broker);
 
@@ -987,13 +990,12 @@ public class SecurityManagerImpl implements SecurityManager, BrokerPoolService {
     }
    
     protected static class PrincipalDbById<V extends Principal> {
-    
-        private final Int2ObjectHashMap<V> db = new Int2ObjectHashMap<>(65);
+        private final Int2ObjectMap<V> db = new Int2ObjectOpenHashMap<>(65);
         private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
         private final ReadLock readLock = lock.readLock();
         private final WriteLock writeLock = lock.writeLock();
 
-        public <R> R read(final Function<Int2ObjectHashMap<V>, R> readFn) {
+        public <R> R read(final Function<Int2ObjectMap<V>, R> readFn) {
             readLock.lock();
             try {
                 return readFn.apply(db);
@@ -1002,7 +1004,7 @@ public class SecurityManagerImpl implements SecurityManager, BrokerPoolService {
             }
         }
 
-        public final void modify(final Consumer<Int2ObjectHashMap<V>> writeOp) {
+        public final void modify(final Consumer<Int2ObjectMap<V>> writeOp) {
             writeLock.lock();
             try {
                 writeOp.accept(db);

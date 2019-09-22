@@ -20,6 +20,8 @@
 package org.exist.collections;
 
 import com.evolvedbinary.j8fu.function.Consumer2E;
+import it.unimi.dsi.fastutil.objects.ObjectOpenHashSet;
+import it.unimi.dsi.fastutil.objects.ObjectSet;
 import net.jcip.annotations.GuardedBy;
 import net.jcip.annotations.NotThreadSafe;
 import org.exist.dom.QName;
@@ -61,7 +63,6 @@ import org.exist.util.MimeType;
 import org.exist.util.SyntaxException;
 import org.exist.util.XMLReaderObjectFactory;
 import org.exist.util.XMLReaderObjectFactory.VALIDATION_SETTING;
-import org.exist.util.hashtable.ObjectHashSet;
 import org.exist.util.io.FastByteArrayInputStream;
 import org.exist.util.serializer.DOMStreamer;
 import org.exist.xmldb.XmldbURI;
@@ -89,7 +90,7 @@ public class MutableCollection implements Collection {
     private XmldbURI path;
     private final Lock lock;
     @GuardedBy("lock") private final Map<String, DocumentImpl> documents = new TreeMap<>();
-    @GuardedBy("lock") private ObjectHashSet<XmldbURI> subCollections = new ObjectHashSet<>(19);
+    @GuardedBy("lock") private ObjectSet<XmldbURI> subCollections = new ObjectOpenHashSet<>(19);
     private long address = BFile.UNKNOWN_ADDRESS;  // Storage address of the collection in the BFile
     private long created = 0;
     private boolean triggersEnabled = true;
@@ -187,7 +188,7 @@ public class MutableCollection implements Collection {
         final Iterator<XmldbURI> subCollectionIterator;
         getLock().acquire(LockMode.READ_LOCK);
         try {
-            subCollectionIterator = subCollections.stableIterator();
+            subCollectionIterator = new ObjectOpenHashSet<>(subCollections).iterator();
         } finally {
             getLock().release(LockMode.READ_LOCK);
         }
@@ -328,7 +329,7 @@ public class MutableCollection implements Collection {
 
         getLock().acquire(LockMode.READ_LOCK);
         try {
-            return subCollections.stableIterator();
+            return new ObjectOpenHashSet<>(subCollections).iterator();
         } finally {
             getLock().release(LockMode.READ_LOCK);
         }
@@ -339,7 +340,7 @@ public class MutableCollection implements Collection {
         if(!getPermissionsNoLock().validate(broker.getCurrentSubject(), Permission.READ)) {
             throw new PermissionDeniedException("Permission to list sub-collections denied on " + this.getURI());
         }
-        return subCollections.stableIterator();
+        return new ObjectOpenHashSet<>(subCollections).iterator();
     }
 
     @Override
@@ -354,7 +355,7 @@ public class MutableCollection implements Collection {
             getLock().acquire(LockMode.READ_LOCK);
             try {
                 collectionList = new ArrayList<>(subCollections.size());
-                i = subCollections.stableIterator();
+                i = new ObjectOpenHashSet<>(subCollections).iterator();
             } finally {
                 getLock().release(LockMode.READ_LOCK);
             }
@@ -397,7 +398,8 @@ public class MutableCollection implements Collection {
                     getDocuments(broker, docs);
                     //Get a list of sub-collection URIs. We will process them
                     //after unlocking this collection. otherwise we may deadlock ourselves
-                    subColls = subCollections.keys();
+                    subColls = new ArrayList<>();
+                    subColls.addAll(subCollections);
                 } finally {
                     getLock().release(LockMode.READ_LOCK);
                 }
@@ -438,7 +440,7 @@ public class MutableCollection implements Collection {
                 //Get a list of sub-collection URIs. We will process them
                 //after unlocking this collection.
                 //otherwise we may deadlock ourselves
-                final List<XmldbURI> subColls = subCollections.keys();
+                final List<XmldbURI> subColls = new ArrayList<>(subCollections);
                 if (subColls != null) {
                     uris = new XmldbURI[subColls.size()];
                     for(int i = 0; i < subColls.size(); i++) {
@@ -612,18 +614,8 @@ public class MutableCollection implements Collection {
     }
 
     @Override
-    public int getMemorySize() {
-        try {
-            getLock().acquire(LockMode.READ_LOCK);
-            try {
-                return SHALLOW_SIZE + documents.size() * DOCUMENT_SIZE;
-            } finally {
-                getLock().release(LockMode.READ_LOCK);
-            }
-        } catch(final LockException e) {
-            LOG.error(e);
-            return -1;
-        }
+    public int getMemorySizeNoLock() {
+        return SHALLOW_SIZE + (documents.size() * DOCUMENT_SIZE);
     }
 
     @Override
@@ -887,7 +879,7 @@ public class MutableCollection implements Collection {
         getLock().acquire(LockMode.READ_LOCK);
         try {
             size = subCollections.size();
-            i = subCollections.stableIterator();
+            i = new ObjectOpenHashSet<>(subCollections).iterator();
         } finally {
             getLock().release(LockMode.READ_LOCK);
         }
@@ -919,7 +911,7 @@ public class MutableCollection implements Collection {
 
         getLock().acquire(LockMode.WRITE_LOCK);
         try {
-            subCollections = new ObjectHashSet<>(collLen == 0 ? 19 : collLen); //TODO(AR) why is this number 19?
+            subCollections = new ObjectOpenHashSet<>(collLen == 0 ? 19 : collLen); //TODO(AR) why is this number 19?
             for (int i = 0; i < collLen; i++) {
                 subCollections.add(XmldbURI.create(istream.readUTF()));
             }
@@ -1633,9 +1625,27 @@ public class MutableCollection implements Collection {
     }
 
     @Override
-    public BinaryDocument addBinaryResource(final Txn transaction, final DBBroker broker, final XmldbURI name, final InputStream is, final String mimeType, final long size, final Date created, final Date modified) throws EXistException, PermissionDeniedException, LockException, TriggerException, IOException {
-        final BinaryDocument blob = new BinaryDocument(broker.getBrokerPool(), this, name);
-        return addBinaryResource(transaction, broker, blob, is, mimeType, size, created, modified);
+    public BinaryDocument addBinaryResource(final Txn transaction, final DBBroker broker, final XmldbURI name,
+            final InputStream is, final String mimeType, final long size, final Date created, final Date modified)
+            throws EXistException, PermissionDeniedException, LockException, TriggerException, IOException {
+
+        final Database db = broker.getBrokerPool();
+        if (db.isReadOnly()) {
+            throw new IOException("Database is read-only");
+        }
+
+        final XmldbURI uri = getURI().append(name);
+
+        getLock().acquire(LockMode.WRITE_LOCK);
+        try {
+
+            final DocumentImpl oldDoc = getDocument(broker, name);
+            final BinaryDocument blob = new BinaryDocument(broker.getBrokerPool(), this, name);
+
+            return addBinaryResource(db, transaction, broker, blob, is, mimeType, size, created, modified, oldDoc);
+        } finally {
+            getLock().release(LockMode.WRITE_LOCK);
+        }
     }
 
     @Override
@@ -1649,13 +1659,30 @@ public class MutableCollection implements Collection {
         if (db.isReadOnly()) {
             throw new IOException("Database is read-only");
         }
+
         final XmldbURI docUri = blob.getFileURI();
-        //TODO : move later, i.e. after the collection lock is acquired ?
-        final DocumentImpl oldDoc = getDocument(broker, docUri);
-        final DocumentTriggers trigger = new DocumentTriggers(broker, null, this, isTriggersEnabled() ? getConfiguration(broker) : null);
 
         getLock().acquire(LockMode.WRITE_LOCK);
         try {
+
+            final DocumentImpl oldDoc = getDocument(broker, docUri);
+
+            return addBinaryResource(db, transaction, broker, blob, is, mimeType, size, created, modified,
+                    oldDoc);
+        } finally {
+            getLock().release(LockMode.WRITE_LOCK);
+        }
+    }
+
+    private BinaryDocument addBinaryResource(final Database db, final Txn transaction, final DBBroker broker,
+            final BinaryDocument blob, final InputStream is, final String mimeType, final long size, final Date created,
+            final Date modified, final DocumentImpl oldDoc) throws EXistException, PermissionDeniedException, LockException,
+            TriggerException, IOException {
+
+        final DocumentTriggers trigger = new DocumentTriggers(broker, null, this, isTriggersEnabled() ? getConfiguration(broker) : null);
+        final XmldbURI docUri = blob.getFileURI();
+        try {
+
             db.getProcessMonitor().startJob(ProcessMonitor.ACTION_STORE_BINARY, docUri);
             checkPermissionsForAddDocument(broker, oldDoc);
             checkCollectionConflict(docUri);
@@ -1669,7 +1696,7 @@ public class MutableCollection implements Collection {
                 metadata.setLastModified(modified.getTime());
             }
             blob.setContentLength(size);
-            
+
             if (oldDoc == null) {
                 trigger.beforeCreateDocument(broker, transaction, blob.getURI());
             } else {
@@ -1701,20 +1728,19 @@ public class MutableCollection implements Collection {
             }
 
             blob.getUpdateLock().acquire(LockMode.READ_LOCK);
+            try {
+                if (oldDoc == null) {
+                    trigger.afterCreateDocument(broker, transaction, blob);
+                } else {
+                    trigger.afterUpdateDocument(broker, transaction, blob);
+                }
+            } finally {
+                blob.getUpdateLock().release(LockMode.READ_LOCK);
+            }
+            return blob;
         } finally {
             broker.getBrokerPool().getProcessMonitor().endJob();
-            getLock().release(LockMode.WRITE_LOCK);
         }
-        try {
-            if (oldDoc == null) {
-                trigger.afterCreateDocument(broker, transaction, blob);
-            } else {
-                trigger.afterUpdateDocument(broker, transaction, blob);
-            }
-        } finally {
-            blob.getUpdateLock().release(LockMode.READ_LOCK);
-        }
-        return blob;
     }
 
     @Override
